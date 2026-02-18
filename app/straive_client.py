@@ -78,24 +78,15 @@ class StraiveClient:
             "size": "1024x1024",
             "response_format": "b64_json",
         }
-        logger.info("Straive image generate request: %s", self._redact(payload))
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                self.settings.image_generate_url,
-                headers=self._headers(api_key_override=api_key_override),
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            logger.info("Straive image generate response: %s", self._redact(data))
-            item = data.get("data", [{}])[0]
-            img = item.get("b64_json") or item.get("url", "")
-            if img.startswith("http"):
-                img = await self._url_to_b64(img, api_key_override=api_key_override)
-            return {
-                "image_id": item.get("id", "generated-image"),
-                "image_url_or_base64": img,
-            }
+        data = await self._post_image_generate(payload, api_key_override=api_key_override)
+        item = data.get("data", [{}])[0]
+        img = item.get("b64_json") or item.get("url", "")
+        if img.startswith("http"):
+            img = await self._url_to_b64(img, api_key_override=api_key_override)
+        return {
+            "image_id": item.get("id", "generated-image"),
+            "image_url_or_base64": img,
+        }
 
     async def image_edit(
         self, image_ref: str, instruction_prompt: str, api_key_override: str | None = None
@@ -110,35 +101,21 @@ class StraiveClient:
             "size": "1024x1024",
             "response_format": "b64_json",
         }
-        logger.info(
-            "Straive image edit request: %s",
-            self._redact(
-                {
-                    "model": "gpt-image-1",
-                    "prompt": instruction_prompt,
-                    "size": "1024x1024",
-                    "response_format": "b64_json",
-                }
-            ),
+        result = await self._post_image_edit(
+            data=data,
+            image_bytes=image_bytes,
+            mime_type=mime_type,
+            filename=filename,
+            api_key_override=api_key_override,
         )
-        async with httpx.AsyncClient(timeout=90) as client:
-            resp = await client.post(
-                self.settings.image_edit_url,
-                headers={"Authorization": f"Bearer {api_key_override or self.settings.straive_api_key}"},
-                data=data,
-                files={"image": (filename, image_bytes, mime_type)},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            logger.info("Straive image edit response: %s", self._redact(data))
-            item = data.get("data", [{}])[0]
-            img = item.get("b64_json") or item.get("url", "")
-            if img.startswith("http"):
-                img = await self._url_to_b64(img, api_key_override=api_key_override)
-            return {
-                "image_id": item.get("id", "edited-image"),
-                "image_url_or_base64": img,
-            }
+        item = result.get("data", [{}])[0]
+        img = item.get("b64_json") or item.get("url", "")
+        if img.startswith("http"):
+            img = await self._url_to_b64(img, api_key_override=api_key_override)
+        return {
+            "image_id": item.get("id", "edited-image"),
+            "image_url_or_base64": img,
+        }
 
     async def _image_ref_to_bytes(self, image_ref: str) -> tuple[bytes, str, str]:
         raw = (image_ref or "").strip()
@@ -172,6 +149,63 @@ class StraiveClient:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
             return base64.b64encode(resp.content).decode("utf-8")
+
+    async def _post_image_generate(
+        self, payload: dict[str, Any], api_key_override: str | None = None
+    ) -> dict[str, Any]:
+        logger.info("Straive image generate request: %s", self._redact(payload))
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                self.settings.image_generate_url,
+                headers=self._headers(api_key_override=api_key_override),
+                json=payload,
+            )
+            if resp.status_code >= 400 and "response_format" in payload:
+                # Compatibility fallback for gateways that do not support response_format in images API.
+                fallback_payload = dict(payload)
+                fallback_payload.pop("response_format", None)
+                logger.warning("Image generate retrying without response_format due to status %s", resp.status_code)
+                resp = await client.post(
+                    self.settings.image_generate_url,
+                    headers=self._headers(api_key_override=api_key_override),
+                    json=fallback_payload,
+                )
+            resp.raise_for_status()
+            data = resp.json()
+            logger.info("Straive image generate response: %s", self._redact(data))
+            return data
+
+    async def _post_image_edit(
+        self,
+        data: dict[str, Any],
+        image_bytes: bytes,
+        mime_type: str,
+        filename: str,
+        api_key_override: str | None = None,
+    ) -> dict[str, Any]:
+        logger.info("Straive image edit request: %s", self._redact(data))
+        auth_headers = {"Authorization": f"Bearer {api_key_override or self.settings.straive_api_key}"}
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(
+                self.settings.image_edit_url,
+                headers=auth_headers,
+                data=data,
+                files={"image": (filename, image_bytes, mime_type)},
+            )
+            if resp.status_code >= 400 and "response_format" in data:
+                fallback_data = dict(data)
+                fallback_data.pop("response_format", None)
+                logger.warning("Image edit retrying without response_format due to status %s", resp.status_code)
+                resp = await client.post(
+                    self.settings.image_edit_url,
+                    headers=auth_headers,
+                    data=fallback_data,
+                    files={"image": (filename, image_bytes, mime_type)},
+                )
+            resp.raise_for_status()
+            out = resp.json()
+            logger.info("Straive image edit response: %s", self._redact(out))
+            return out
 
     async def describe_packaging_asset(
         self, image_path: Path, api_key_override: str | None = None
