@@ -62,6 +62,10 @@ const el = {
 };
 let operationInFlight = false;
 
+function reloadAfterImageUpdate() {
+  window.location.reload();
+}
+
 function applyActionAvailability() {
   const s = state.session;
   if (!s) return;
@@ -165,8 +169,8 @@ function renderBaselineCandidates(matches, selectedRelPath) {
           asset_rel_path: m.asset_rel_path,
         });
         await refreshSession();
-        setActiveScreen(2);
-        addMessage("system", `Baseline selected: ${m.filename}. Continue in Edit Studio.`);
+        addMessage("system", `Baseline selected: ${m.filename}. Reloading...`);
+        reloadAfterImageUpdate();
       } catch (err) {
         addMessage("system", err.message);
       }
@@ -432,6 +436,7 @@ async function generate2D() {
       // Keep UI usable if sync call fails; user can still proceed with edit.
       addMessage("system", `Session refresh warning: ${err.message}`);
     }
+    reloadAfterImageUpdate();
   } finally {
     setOperationLoading(false);
   }
@@ -457,6 +462,7 @@ async function runManualEdit() {
     });
     addMessage("system", `Created iteration version v${res.version}.`);
     await refreshSession();
+    reloadAfterImageUpdate();
   } finally {
     setOperationLoading(false);
   }
