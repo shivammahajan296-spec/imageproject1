@@ -236,6 +236,7 @@ function renderBaselineCandidates(matches, selectedRelPath) {
           asset_rel_path: m.asset_rel_path,
         });
         await refreshSession();
+        setActiveScreen(2);
         addMessage("system", `Baseline selected: ${m.filename}. Reloading...`);
         reloadAfterImageUpdate();
       } catch (err) {
