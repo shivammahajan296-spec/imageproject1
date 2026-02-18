@@ -552,7 +552,29 @@ async def generate_preview_3d(payload: Preview3DGenerateRequest, request: Reques
     limiter.check(request, "preview3d-generate")
     state = store.get_or_create(payload.session_id)
     if not state.approved_image_local_path:
-        raise HTTPException(status_code=400, detail="Approve a version first before generating 3D preview.")
+        # Backfill path for sessions created before local image persistence existed.
+        approved_img = None
+        if state.approved_image_version:
+            approved_img = next((img for img in state.images if img.version == state.approved_image_version), None)
+        if not approved_img and state.approved_image_id:
+            approved_img = next((img for img in state.images if img.image_id == state.approved_image_id), None)
+        if approved_img:
+            if approved_img.local_image_path:
+                state.approved_image_local_path = approved_img.local_image_path
+            else:
+                data_url, local_path = await _materialize_session_image(
+                    payload.session_id, approved_img.version, approved_img.image_url_or_base64
+                )
+                approved_img.image_url_or_base64 = data_url
+                approved_img.local_image_path = local_path
+                state.approved_image_local_path = local_path
+                if not state.approved_image_version:
+                    state.approved_image_version = approved_img.version
+                if not state.approved_image_id:
+                    state.approved_image_id = approved_img.image_id
+            store.save(state)
+        else:
+            raise HTTPException(status_code=400, detail="Approve a version first before generating 3D preview.")
 
     input_path = state.approved_image_local_path
     if not Path(input_path).exists():
