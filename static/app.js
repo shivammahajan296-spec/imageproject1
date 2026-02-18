@@ -61,6 +61,11 @@ const el = {
   assetCatalogList: document.getElementById("assetCatalogList"),
 };
 let operationInFlight = false;
+const activeScreenStorageKey = `packDesignActiveScreen:${state.sessionId}`;
+const storedActiveScreen = Number(sessionStorage.getItem(activeScreenStorageKey) || "1");
+if ([1, 2, 3, 4].includes(storedActiveScreen)) {
+  state.activeScreen = storedActiveScreen;
+}
 
 function reloadAfterImageUpdate() {
   window.location.reload();
@@ -191,6 +196,7 @@ function renderBaselineCandidates(matches, selectedRelPath) {
 
 function setActiveScreen(screenNumber) {
   state.activeScreen = screenNumber;
+  sessionStorage.setItem(activeScreenStorageKey, String(screenNumber));
   [el.tab1, el.tab2, el.tab3, el.tab4].forEach((tab, i) => tab.classList.toggle("active", i + 1 === screenNumber));
   [el.screen1, el.screen2, el.screen3, el.screen4].forEach((screen, i) => screen.classList.toggle("active", i + 1 === screenNumber));
 }
