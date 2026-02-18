@@ -72,7 +72,12 @@ class StraiveClient:
         if not (api_key_override or self.settings.straive_api_key):
             return self._fallback_image(prompt)
 
-        payload = {"model": "gpt-image-1", "prompt": prompt, "size": "1024x1024"}
+        payload = {
+            "model": "gpt-image-1",
+            "prompt": prompt,
+            "size": "1024x1024",
+            "response_format": "b64_json",
+        }
         logger.info("Straive image generate request: %s", self._redact(payload))
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
@@ -84,9 +89,12 @@ class StraiveClient:
             data = resp.json()
             logger.info("Straive image generate response: %s", self._redact(data))
             item = data.get("data", [{}])[0]
+            img = item.get("b64_json") or item.get("url", "")
+            if img.startswith("http"):
+                img = await self._url_to_b64(img, api_key_override=api_key_override)
             return {
                 "image_id": item.get("id", "generated-image"),
-                "image_url_or_base64": item.get("url") or item.get("b64_json", ""),
+                "image_url_or_base64": img,
             }
 
     async def image_edit(
@@ -100,10 +108,18 @@ class StraiveClient:
             "model": "gpt-image-1",
             "prompt": instruction_prompt,
             "size": "1024x1024",
+            "response_format": "b64_json",
         }
         logger.info(
             "Straive image edit request: %s",
-            self._redact({"model": "gpt-image-1", "prompt": instruction_prompt, "size": "1024x1024"}),
+            self._redact(
+                {
+                    "model": "gpt-image-1",
+                    "prompt": instruction_prompt,
+                    "size": "1024x1024",
+                    "response_format": "b64_json",
+                }
+            ),
         )
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
@@ -116,9 +132,12 @@ class StraiveClient:
             data = resp.json()
             logger.info("Straive image edit response: %s", self._redact(data))
             item = data.get("data", [{}])[0]
+            img = item.get("b64_json") or item.get("url", "")
+            if img.startswith("http"):
+                img = await self._url_to_b64(img, api_key_override=api_key_override)
             return {
                 "image_id": item.get("id", "edited-image"),
-                "image_url_or_base64": item.get("url") or item.get("b64_json", ""),
+                "image_url_or_base64": img,
             }
 
     async def _image_ref_to_bytes(self, image_ref: str) -> tuple[bytes, str, str]:
@@ -143,6 +162,16 @@ class StraiveClient:
 
         # Assume bare base64 image payload
         return base64.b64decode(raw), "image/png", "edit_input.png"
+
+    async def _url_to_b64(self, url: str, api_key_override: str | None = None) -> str:
+        headers = {}
+        token = api_key_override or self.settings.straive_api_key
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        async with httpx.AsyncClient(timeout=45) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            return base64.b64encode(resp.content).decode("utf-8")
 
     async def describe_packaging_asset(
         self, image_path: Path, api_key_override: str | None = None
