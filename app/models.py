@@ -24,6 +24,7 @@ class ImageVersion(BaseModel):
     image_url_or_base64: str
     version: int
     prompt: str
+    local_image_path: str | None = None
 
 
 class SessionState(BaseModel):

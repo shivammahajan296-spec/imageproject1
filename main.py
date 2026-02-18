@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import base64
 import io
+import imghdr
 import logging
 import mimetypes
+import re
 import uuid
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -75,6 +78,7 @@ STRICT_MESSAGES = {
 }
 BASELINE_SEARCH_MSG = "Searching for a similar baseline design…"
 BASELINE_NEW_MSG = "No close baseline found. Creating a new concept."
+SESSION_IMAGE_DIR = Path("session_images")
 
 
 def _request_api_key(request: Request) -> str | None:
@@ -86,6 +90,9 @@ def _normalize_image_ref_for_edit(value: str) -> str:
     raw = (value or "").strip()
     if not raw:
         return raw
+    p = Path(raw)
+    if p.exists() and p.is_file():
+        return str(p)
     if raw.startswith("http://") or raw.startswith("https://") or raw.startswith("data:image"):
         return raw
     # Straive may return bare base64 for generated images; normalize to data URL for edit calls.
@@ -103,6 +110,74 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
         if txt.strip():
             chunks.append(txt.strip())
     return "\n\n".join(chunks).strip()
+
+
+def _safe_session_key(session_id: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9._-]", "_", session_id)[:100]
+
+
+def _detect_mime_from_bytes(blob: bytes, hinted: str | None = None) -> str:
+    kind = imghdr.what(None, h=blob)
+    mapping = {
+        "png": "image/png",
+        "jpeg": "image/jpeg",
+        "jpg": "image/jpeg",
+        "webp": "image/webp",
+        "gif": "image/gif",
+        "bmp": "image/bmp",
+    }
+    if kind and kind.lower() in mapping:
+        return mapping[kind.lower()]
+    if hinted and hinted.startswith("image/"):
+        return hinted
+    return "image/png"
+
+
+async def _resolve_image_bytes(value: str, req_api_key: str | None = None) -> tuple[bytes, str]:
+    raw = (value or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty image content.")
+
+    p = Path(raw)
+    if p.exists() and p.is_file():
+        blob = p.read_bytes()
+        hinted = mimetypes.guess_type(str(p))[0]
+        return blob, _detect_mime_from_bytes(blob, hinted=hinted)
+
+    if raw.startswith("data:image"):
+        header, b64_data = raw.split(",", 1)
+        m = re.search(r"data:(image/[^;]+);base64", header)
+        hinted = m.group(1) if m else None
+        blob = base64.b64decode(b64_data)
+        return blob, _detect_mime_from_bytes(blob, hinted=hinted)
+
+    if raw.startswith("http://") or raw.startswith("https://"):
+        headers = {}
+        if req_api_key:
+            headers["Authorization"] = f"Bearer {req_api_key}"
+        async with httpx.AsyncClient(timeout=45) as client:
+            resp = await client.get(raw, headers=headers)
+            resp.raise_for_status()
+            blob = resp.content
+            hinted = resp.headers.get("content-type", "").split(";")[0].strip() or None
+            return blob, _detect_mime_from_bytes(blob, hinted=hinted)
+
+    # Assume bare base64.
+    blob = base64.b64decode(raw)
+    return blob, _detect_mime_from_bytes(blob, hinted=None)
+
+
+async def _materialize_session_image(
+    session_id: str, version: int, image_value: str, req_api_key: str | None = None
+) -> tuple[str, str]:
+    blob, mime_type = await _resolve_image_bytes(image_value, req_api_key=req_api_key)
+    ext = mimetypes.guess_extension(mime_type) or ".png"
+    sess_dir = SESSION_IMAGE_DIR / _safe_session_key(session_id)
+    sess_dir.mkdir(parents=True, exist_ok=True)
+    local_path = sess_dir / f"v{version}{ext}"
+    local_path.write_bytes(blob)
+    data_url = f"data:{mime_type};base64,{base64.b64encode(blob).decode('utf-8')}"
+    return data_url, str(local_path.resolve())
 
 
 @app.get("/health")
@@ -282,11 +357,15 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
 
     generated = await straive.image_generate(payload.prompt, api_key_override=req_api_key)
     version = len(state.images) + 1
+    image_data_url, local_path = await _materialize_session_image(
+        payload.session_id, version, generated["image_url_or_base64"], req_api_key=req_api_key
+    )
     image = ImageVersion(
         image_id=generated["image_id"] or str(uuid.uuid4()),
-        image_url_or_base64=generated["image_url_or_base64"],
+        image_url_or_base64=image_data_url,
         version=version,
         prompt=payload.prompt,
+        local_image_path=local_path,
     )
     state.images.append(image)
 
@@ -313,15 +392,24 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
         raise HTTPException(status_code=400, detail="Design is locked. Iteration is not allowed.")
 
     # Always edit the latest session visual so iteration is continuous from the current reference.
-    latest_ref = state.images[-1].image_url_or_base64 if state.images else payload.image_id
+    latest = state.images[-1] if state.images else None
+    latest_ref = (
+        latest.local_image_path
+        if latest and latest.local_image_path
+        else (latest.image_url_or_base64 if latest else payload.image_id)
+    )
     latest_ref = _normalize_image_ref_for_edit(latest_ref)
     edited = await straive.image_edit(latest_ref, payload.instruction_prompt, api_key_override=req_api_key)
     version = len(state.images) + 1
+    image_data_url, local_path = await _materialize_session_image(
+        payload.session_id, version, edited["image_url_or_base64"], req_api_key=req_api_key
+    )
     image = ImageVersion(
         image_id=edited["image_id"] or str(uuid.uuid4()),
-        image_url_or_base64=edited["image_url_or_base64"],
+        image_url_or_base64=image_data_url,
         version=version,
         prompt=payload.instruction_prompt,
+        local_image_path=local_path,
     )
     state.images.append(image)
 
@@ -355,6 +443,7 @@ async def adopt_baseline(payload: BaselineAdoptRequest, request: Request) -> Ima
         image_url_or_base64=data_url,
         version=version,
         prompt=f"Adopted baseline asset: {match.get('filename', asset_path.name)}",
+        local_image_path=str(asset_path.resolve()),
     )
     state.images.append(image)
     if state.step < 4:
