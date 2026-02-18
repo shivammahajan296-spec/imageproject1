@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import imghdr
 import json
 import logging
 import mimetypes
@@ -98,7 +99,6 @@ class StraiveClient:
         data = {
             "model": "gpt-image-1",
             "prompt": instruction_prompt,
-            "size": "1024x1024",
             "response_format": "b64_json",
         }
         result = await self._post_image_edit(
@@ -125,9 +125,11 @@ class StraiveClient:
         if raw.startswith("data:image"):
             header, b64_data = raw.split(",", 1)
             mime_match = re.search(r"data:(image/[^;]+);base64", header)
-            mime_type = mime_match.group(1) if mime_match else "image/png"
+            hinted_mime = mime_match.group(1) if mime_match else None
+            blob = base64.b64decode(b64_data)
+            mime_type = self._detect_image_mime(blob, hinted_mime=hinted_mime)
             ext = mimetypes.guess_extension(mime_type) or ".png"
-            return base64.b64decode(b64_data), mime_type, f"edit_input{ext}"
+            return blob, mime_type, f"edit_input{ext}"
 
         if raw.startswith("http://") or raw.startswith("https://"):
             async with httpx.AsyncClient(timeout=45) as client:
@@ -138,7 +140,10 @@ class StraiveClient:
                 return resp.content, mime_type, f"edit_input{ext}"
 
         # Assume bare base64 image payload
-        return base64.b64decode(raw), "image/png", "edit_input.png"
+        blob = base64.b64decode(raw)
+        mime_type = self._detect_image_mime(blob, hinted_mime=None)
+        ext = mimetypes.guess_extension(mime_type) or ".png"
+        return blob, mime_type, f"edit_input{ext}"
 
     async def _url_to_b64(self, url: str, api_key_override: str | None = None) -> str:
         headers = {}
@@ -149,6 +154,24 @@ class StraiveClient:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
             return base64.b64encode(resp.content).decode("utf-8")
+
+    @staticmethod
+    def _detect_image_mime(blob: bytes, hinted_mime: str | None = None) -> str:
+        kind = imghdr.what(None, h=blob)
+        mapping = {
+            "png": "image/png",
+            "jpeg": "image/jpeg",
+            "jpg": "image/jpeg",
+            "webp": "image/webp",
+            "gif": "image/gif",
+            "bmp": "image/bmp",
+        }
+        detected = mapping.get((kind or "").lower())
+        if detected:
+            return detected
+        if hinted_mime and hinted_mime.startswith("image/"):
+            return hinted_mime
+        return "image/png"
 
     async def _post_image_generate(
         self, payload: dict[str, Any], api_key_override: str | None = None
