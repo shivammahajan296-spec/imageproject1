@@ -406,8 +406,32 @@ async function generate2D() {
   addMessage("system", "Generating 2D concept...");
   try {
     const res = await apiPost("/api/image/generate", { session_id: state.sessionId, prompt });
+    // Update local state immediately so Run Edit unlocks even before a full session refetch.
+    if (state.session) {
+      const newImage = {
+        image_id: res.image_id,
+        image_url_or_base64: res.image_url_or_base64,
+        version: res.version,
+        prompt,
+      };
+      const existing = Array.isArray(state.session.images) ? state.session.images : [];
+      state.session.images = [...existing, newImage];
+      state.session.step = 4;
+      state.session.lock_confirmed = false;
+      state.session.lock_question_asked = false;
+      state.session.cadquery_code = null;
+      state.session.design_summary = null;
+      state.latestImageId = res.image_id;
+      state.latestImageData = normalizeImageSource(res.image_url_or_base64);
+      updateFromSession(state.session);
+    }
     addMessage("system", `Generated concept image version v${res.version}.`);
-    await refreshSession();
+    try {
+      await refreshSession();
+    } catch (err) {
+      // Keep UI usable if sync call fails; user can still proceed with edit.
+      addMessage("system", `Session refresh warning: ${err.message}`);
+    }
   } finally {
     setOperationLoading(false);
   }
