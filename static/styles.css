@@ -182,6 +182,9 @@ body {
   place-items: center;
   z-index: 1000;
 }
+.modal[hidden] {
+  display: none !important;
+}
 .modal-card {
   width: min(92vw, 420px);
   background: #fff;

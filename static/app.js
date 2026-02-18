@@ -607,6 +607,7 @@ el.refreshCatalogBtn.addEventListener("click", async () => {
 });
 
 (async function init() {
+  el.keyModal.hidden = true;
   el.apiKeyPopupInput.value = state.apiKey;
   renderKeyBadge();
   addMessage("system", "Session initialized. Start with packaging requirements.");
