@@ -416,6 +416,7 @@ async function generate2D() {
   if (!prompt) return;
   setOperationLoading(true, "Generating 2D concept...");
   addMessage("system", "Generating 2D concept...");
+  let shouldReload = false;
   try {
     const res = await apiPost("/api/image/generate", { session_id: state.sessionId, prompt });
     // Update local state immediately so Run Edit unlocks even before a full session refetch.
@@ -444,9 +445,12 @@ async function generate2D() {
       // Keep UI usable if sync call fails; user can still proceed with edit.
       addMessage("system", `Session refresh warning: ${err.message}`);
     }
-    reloadAfterImageUpdate();
+    shouldReload = true;
   } finally {
     setOperationLoading(false);
+    if (shouldReload) {
+      setTimeout(() => reloadAfterImageUpdate(), 120);
+    }
   }
 }
 
@@ -466,6 +470,7 @@ async function runManualEdit() {
   }
   setOperationLoading(true, "Applying edit to current design...");
   addMessage("system", "Applying edit...");
+  let shouldReload = false;
   try {
     const res = await apiPost("/api/image/edit", {
       session_id: state.sessionId,
@@ -474,9 +479,12 @@ async function runManualEdit() {
     });
     addMessage("system", `Created iteration version v${res.version}.`);
     await refreshSession();
-    reloadAfterImageUpdate();
+    shouldReload = true;
   } finally {
     setOperationLoading(false);
+    if (shouldReload) {
+      setTimeout(() => reloadAfterImageUpdate(), 120);
+    }
   }
 }
 
