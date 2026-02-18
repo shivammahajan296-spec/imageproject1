@@ -6,6 +6,8 @@ import imghdr
 import logging
 import mimetypes
 import re
+import shlex
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Any
@@ -32,6 +34,10 @@ from app.models import (
     ChatResponse,
     EditRecommendationsResponse,
     BriefUploadResponse,
+    Preview3DGenerateRequest,
+    Preview3DGenerateResponse,
+    VersionApproveRequest,
+    VersionApproveResponse,
     ImageEditRequest,
     ImageGenerateRequest,
     ImageResponse,
@@ -54,6 +60,7 @@ from app.workflow import (
 )
 
 settings = load_settings()
+Path(settings.triposr_output_dir).mkdir(parents=True, exist_ok=True)
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
 logger = logging.getLogger("pack-design-app")
 
@@ -178,6 +185,44 @@ async def _materialize_session_image(
     local_path.write_bytes(blob)
     data_url = f"data:{mime_type};base64,{base64.b64encode(blob).decode('utf-8')}"
     return data_url, str(local_path.resolve())
+
+
+def _run_triposr(input_image_path: str, session_id: str) -> str:
+    if not settings.triposr_command.strip():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "TRIPOSR_COMMAND is not configured. Set env var, e.g. "
+                "'python run.py --input {input} --output-dir {output_dir}'"
+            ),
+        )
+
+    output_root = Path(settings.triposr_output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+    run_dir = output_root / f"{_safe_session_key(session_id)}-{uuid.uuid4().hex[:8]}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    command = settings.triposr_command.format(input=input_image_path, output_dir=str(run_dir))
+    args = shlex.split(command)
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail=f"TripoSR timed out: {exc}") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=f"TripoSR command not found: {exc}") from exc
+
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise HTTPException(status_code=502, detail=f"TripoSR failed: {err[:500]}")
+
+    candidates = []
+    for ext in (".glb", ".obj", ".ply", ".stl"):
+        candidates.extend(run_dir.rglob(f"*{ext}"))
+    if not candidates:
+        raise HTTPException(status_code=502, detail="TripoSR completed but no 3D file was found.")
+
+    latest = max(candidates, key=lambda p: p.stat().st_mtime)
+    return str(latest.resolve())
 
 
 @app.get("/health")
@@ -375,6 +420,10 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
     state.lock_confirmed = False
     state.cadquery_code = None
     state.design_summary = None
+    state.approved_image_id = None
+    state.approved_image_version = None
+    state.approved_image_local_path = None
+    state.preview_3d_file = None
 
     store.save(state)
     return ImageResponse(
@@ -422,6 +471,10 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
         local_image_path=local_path,
     )
     state.images.append(image)
+    state.approved_image_id = None
+    state.approved_image_version = None
+    state.approved_image_local_path = None
+    state.preview_3d_file = None
 
     store.save(state)
     return ImageResponse(
@@ -456,6 +509,10 @@ async def adopt_baseline(payload: BaselineAdoptRequest, request: Request) -> Ima
         local_image_path=str(asset_path.resolve()),
     )
     state.images.append(image)
+    state.approved_image_id = None
+    state.approved_image_version = None
+    state.approved_image_local_path = None
+    state.preview_3d_file = None
     if state.step < 4:
         state.step = 4
     store.save(state)
@@ -463,6 +520,57 @@ async def adopt_baseline(payload: BaselineAdoptRequest, request: Request) -> Ima
         image_id=image.image_id,
         image_url_or_base64=image.image_url_or_base64,
         version=image.version,
+    )
+
+
+@app.post("/api/version/approve", response_model=VersionApproveResponse)
+async def approve_version(payload: VersionApproveRequest, request: Request) -> VersionApproveResponse:
+    limiter.check(request, "version-approve")
+    state = store.get_or_create(payload.session_id)
+    target = next((img for img in state.images if img.version == payload.version), None)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Version v{payload.version} not found.")
+    if not target.local_image_path:
+        # Repair local path if old state row lacks it.
+        data_url, local_path = await _materialize_session_image(
+            payload.session_id, target.version, target.image_url_or_base64
+        )
+        target.image_url_or_base64 = data_url
+        target.local_image_path = local_path
+
+    state.approved_image_id = target.image_id
+    state.approved_image_version = target.version
+    state.approved_image_local_path = target.local_image_path
+    # Approve screen entry point; this is independent from CAD lock workflow.
+    if state.step < 5:
+        state.step = 5
+    store.save(state)
+    return VersionApproveResponse(
+        message=f"Version v{target.version} approved for 3D preview conversion.",
+        approved_version=target.version,
+    )
+
+
+@app.post("/api/preview3d/generate", response_model=Preview3DGenerateResponse)
+async def generate_preview_3d(payload: Preview3DGenerateRequest, request: Request) -> Preview3DGenerateResponse:
+    limiter.check(request, "preview3d-generate")
+    state = store.get_or_create(payload.session_id)
+    if not state.approved_image_local_path:
+        raise HTTPException(status_code=400, detail="Approve a version first before generating 3D preview.")
+
+    input_path = state.approved_image_local_path
+    if not Path(input_path).exists():
+        raise HTTPException(status_code=404, detail="Approved source image file is missing on disk.")
+
+    preview_path = _run_triposr(input_path, payload.session_id)
+    rel = Path(preview_path).resolve().relative_to(Path(settings.triposr_output_dir).resolve())
+    rel_str = str(rel).replace("\\", "/")
+    preview_file = f"/preview-3d/{rel_str}"
+    state.preview_3d_file = preview_file
+    store.save(state)
+    return Preview3DGenerateResponse(
+        message=f"3D preview generated from approved version v{state.approved_image_version}.",
+        preview_file=preview_file,
     )
 
 
@@ -491,10 +599,14 @@ async def clear_session(payload: SessionClearRequest, request: Request) -> Sessi
     reset_state.baseline_matches = []
     reset_state.baseline_asset = None
     reset_state.images = []
+    reset_state.approved_image_id = None
+    reset_state.approved_image_version = None
+    reset_state.approved_image_local_path = None
     reset_state.lock_question_asked = False
     reset_state.lock_confirmed = False
     reset_state.cadquery_code = None
     reset_state.design_summary = None
+    reset_state.preview_3d_file = None
     reset_state.history = []
     store.save(reset_state)
     return SessionClearResponse(message="Session state cleared.")
@@ -529,4 +641,5 @@ async def get_session(session_id: str, request: Request) -> SessionResponse:
 
 
 app.mount("/asset-files", StaticFiles(directory=settings.assets_dir), name="asset-files")
+app.mount("/preview-3d", StaticFiles(directory=settings.triposr_output_dir), name="preview-3d")
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

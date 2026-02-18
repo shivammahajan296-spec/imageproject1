@@ -45,8 +45,10 @@ const el = {
   recList: document.getElementById("recList"),
   opProgress: document.getElementById("opProgress"),
   opProgressText: document.getElementById("opProgressText"),
-  downloadCadBtn: document.getElementById("downloadCadBtn"),
-  lockBtn: document.getElementById("lockBtn"),
+  generate3dPreviewBtn: document.getElementById("generate3dPreviewBtn"),
+  open3dPreviewLink: document.getElementById("open3dPreviewLink"),
+  preview3dProgress: document.getElementById("preview3dProgress"),
+  preview3dProgressText: document.getElementById("preview3dProgressText"),
   approvalStatus: document.getElementById("approvalStatus"),
   threeDText: document.getElementById("threeDText"),
   indexAssetsBtn: document.getElementById("indexAssetsBtn"),
@@ -83,13 +85,13 @@ function applyActionAvailability() {
   if (!s) return;
   const hasImages = Boolean(s.images && s.images.length);
   const canGenerate2D = s.step >= 3 && !hasImages;
-  const canLock = s.step === 5 && s.lock_question_asked;
+  const canGenerate3D = Boolean(s.approved_image_version && !operationInFlight);
 
   el.generate2dBtn.disabled = operationInFlight || !canGenerate2D;
   // Keep Run Edit clickable so click handler can always provide deterministic feedback.
   el.applyManualBtn.disabled = false;
   el.applyManualBtn.classList.toggle("pseudo-disabled", !canRunEditNow());
-  el.lockBtn.disabled = operationInFlight || !canLock;
+  el.generate3dPreviewBtn.disabled = !canGenerate3D;
 }
 
 function addMessage(role, content) {
@@ -149,12 +151,12 @@ async function approveVersion(img) {
   state.latestImageId = img.image_id;
   state.latestImageData = normalizeImageSource(img.image_url_or_base64);
   renderMainImage(state.latestImageData);
-  addMessage("system", `Approving v${img.version} and moving to lock confirmation...`);
-  const data = await apiPost("/api/chat", {
+  addMessage("system", `Approving v${img.version} for 3D conversion...`);
+  const data = await apiPost("/api/version/approve", {
     session_id: state.sessionId,
-    user_message: `Use version v${img.version} as final. Ready to lock this design.`,
+    version: img.version,
   });
-  addMessage("assistant", data.assistant_message);
+  addMessage("assistant", data.message);
   await refreshSession();
   setActiveScreen(3);
 }
@@ -346,20 +348,19 @@ function updateFromSession(s) {
   applyActionAvailability();
 
   if (s.lock_confirmed) {
-    el.approvalStatus.textContent = "Design locked. CAD generation in progress or completed.";
-  } else if (s.step === 5) {
-    el.approvalStatus.textContent = "Ready for approval. Confirm lock to generate CAD.";
+    el.approvalStatus.textContent = "A design lock state is present.";
+  } else if (s.approved_image_version) {
+    el.approvalStatus.textContent = `Approved version: v${s.approved_image_version}`;
   } else {
-    el.approvalStatus.textContent = "Design not locked yet.";
+    el.approvalStatus.textContent = "No version approved yet.";
   }
 
-  if (s.cadquery_code) {
-    state.cadCode = s.cadquery_code;
-    el.downloadCadBtn.disabled = false;
-    el.threeDText.textContent = "3D CAD generated. STEP export is supported from the provided CadQuery code.";
-  } else {
-    el.downloadCadBtn.disabled = true;
-    el.threeDText.textContent = "3D CAD preview is available after lock + CAD generation.";
+  el.threeDText.textContent = s.preview_3d_file
+    ? `3D preview is ready from approved version v${s.approved_image_version || "-"}.`
+    : "Approve a version, then run TripoSR 2D->3D conversion.";
+  el.open3dPreviewLink.hidden = !s.preview_3d_file;
+  if (s.preview_3d_file) {
+    el.open3dPreviewLink.href = s.preview_3d_file;
   }
 
   const allowed = computeAllowedScreen(s.step, hasBaselineMatch);
@@ -407,10 +408,6 @@ async function sendChat(message) {
   const data = await apiPost("/api/chat", { session_id: state.sessionId, user_message: message });
   addMessage("assistant", data.assistant_message);
   await refreshSession();
-
-  if (data.can_generate_cad) {
-    await generateCad();
-  }
 }
 
 function build2DPromptFromSession() {
@@ -462,6 +459,10 @@ async function generate2D() {
       state.session.lock_question_asked = false;
       state.session.cadquery_code = null;
       state.session.design_summary = null;
+      state.session.preview_3d_file = null;
+      state.session.approved_image_id = null;
+      state.session.approved_image_version = null;
+      state.session.approved_image_local_path = null;
       state.latestImageId = res.image_id;
       state.latestImageData = normalizeImageSource(res.image_url_or_base64);
       updateFromSession(state.session);
@@ -516,33 +517,25 @@ async function runManualEdit() {
   }
 }
 
-async function lockDesign() {
-  await sendChat("Yes, lock the design and proceed with 3D CAD generation.");
-}
-
-async function generateCad() {
-  setOperationLoading(true, "Generating CAD code...");
-  try {
-    const res = await apiPost("/api/cad/generate", { session_id: state.sessionId });
-    state.cadCode = res.cadquery_code;
-    addMessage("assistant", `Final design summary: ${res.design_summary}\nSTEP export is supported from the provided CadQuery code.`);
-    await refreshSession();
-  } finally {
-    setOperationLoading(false);
+function setPreview3DLoading(isLoading, text = "Generating 3D preview...") {
+  el.preview3dProgress.hidden = !isLoading;
+  if (isLoading) {
+    el.preview3dProgressText.textContent = text;
   }
 }
 
-function downloadCadCode() {
-  if (!state.cadCode) return;
-  const blob = new Blob([state.cadCode], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "pack_design.cq.py";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+async function generate3DPreview() {
+  setOperationLoading(true, "Preparing 3D generation...");
+  setPreview3DLoading(true, "Generating 3D preview using TripoSR...");
+  addMessage("system", "Generating 3D preview from approved version...");
+  try {
+    const res = await apiPost("/api/preview3d/generate", { session_id: state.sessionId });
+    addMessage("assistant", `${res.message}`);
+    await refreshSession();
+  } finally {
+    setOperationLoading(false);
+    setPreview3DLoading(false);
+  }
 }
 
 async function indexAssetMetadata() {
@@ -616,15 +609,13 @@ el.applyManualBtn.addEventListener("click", async () => {
   }
 });
 
-el.lockBtn.addEventListener("click", async () => {
+el.generate3dPreviewBtn.addEventListener("click", async () => {
   try {
-    await lockDesign();
+    await generate3DPreview();
   } catch (err) {
     addMessage("system", err.message);
   }
 });
-
-el.downloadCadBtn.addEventListener("click", downloadCadCode);
 el.indexAssetsBtn.addEventListener("click", async () => {
   try {
     await indexAssetMetadata();

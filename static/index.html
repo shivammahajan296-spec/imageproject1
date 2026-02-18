@@ -101,14 +101,18 @@
           <div class="two-col">
             <div class="card">
               <h2>Approval</h2>
-              <p id="approvalStatus">Design not locked yet.</p>
-              <button id="lockBtn" class="btn warning">Lock Design</button>
-              <button id="downloadCadBtn" class="btn secondary" disabled>Download CadQuery Code</button>
+              <p id="approvalStatus">No version approved yet.</p>
+              <div id="preview3dProgress" class="op-progress" hidden>
+                <div id="preview3dProgressText" class="op-progress-text">Generating 3D preview...</div>
+                <div class="op-progress-bar"><span></span></div>
+              </div>
+              <button id="generate3dPreviewBtn" class="btn warning">Generate 3D Preview (TripoSR)</button>
+              <a id="open3dPreviewLink" class="btn secondary" href="#" target="_blank" rel="noopener" hidden>Open 3D File</a>
             </div>
             <div class="card">
               <h2>3D Preview Status</h2>
               <div id="threeDPanel" class="three-d">
-                <p id="threeDText">3D CAD preview is available after lock + CAD generation.</p>
+                <p id="threeDText">Approve a version, then run TripoSR 2D->3D conversion.</p>
               </div>
             </div>
           </div>

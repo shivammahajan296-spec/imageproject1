@@ -38,10 +38,14 @@ class SessionState(BaseModel):
     baseline_matches: list[dict[str, Any]] = Field(default_factory=list)
     baseline_asset: dict[str, Any] | None = None
     images: list[ImageVersion] = Field(default_factory=list)
+    approved_image_id: str | None = None
+    approved_image_version: int | None = None
+    approved_image_local_path: str | None = None
     lock_question_asked: bool = False
     lock_confirmed: bool = False
     cadquery_code: str | None = None
     design_summary: str | None = None
+    preview_3d_file: str | None = None
     history: list[dict[str, str]] = Field(default_factory=list)
 
 
@@ -150,3 +154,22 @@ class BriefUploadResponse(BaseModel):
     step: int
     spec_summary: str
     required_questions: list[str] = Field(default_factory=list)
+
+
+class Preview3DGenerateRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+
+
+class Preview3DGenerateResponse(BaseModel):
+    message: str
+    preview_file: str
+
+
+class VersionApproveRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+    version: int = Field(ge=1)
+
+
+class VersionApproveResponse(BaseModel):
+    message: str
+    approved_version: int

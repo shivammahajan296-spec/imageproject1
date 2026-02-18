@@ -61,6 +61,14 @@ Put reusable reference images in:
 - `POST /api/image/edit`
   - Input: `{ session_id, image_id, instruction_prompt }`
   - Output: `{ image_id, image_url_or_base64, version }`
+- `POST /api/version/approve`
+  - Input: `{ session_id, version }`
+  - Output: `{ message, approved_version }`
+  - Action: marks a version from history as approved source for 3D conversion
+- `POST /api/preview3d/generate`
+  - Input: `{ session_id }`
+  - Output: `{ message, preview_file }`
+  - Action: generates 3D preview from the approved version image using TripoSR
 - `POST /api/cad/generate`
   - Input: `{ session_id }`
   - Output: `{ cadquery_code, design_summary }`
@@ -116,3 +124,4 @@ CAD generation is blocked unless required dimensions are present.
 - Frontend never calls Straive directly.
 - All Straive requests are server-side.
 - If `STRAIVE_API_KEY` is missing, image endpoints return a safe placeholder preview for local testing.
+- Approve & 3D screen is TripoSR-based (approve a version, then generate 3D preview).
