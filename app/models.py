@@ -107,3 +107,20 @@ class EditRecommendationsResponse(BaseModel):
 class BaselineAdoptRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=120)
     asset_rel_path: str = Field(min_length=1, max_length=500)
+
+
+class BaselineSkipRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+
+
+class BaselineSkipResponse(BaseModel):
+    message: str
+    step: int
+
+
+class SessionClearRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+
+
+class SessionClearResponse(BaseModel):
+    message: str

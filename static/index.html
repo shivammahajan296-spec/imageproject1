@@ -36,7 +36,10 @@
                 <p id="specSummary">No specs collected yet.</p>
               </details>
               <div id="missingInfo" class="missing-info"></div>
-              <button id="indexAssetsBtn" class="btn secondary">Index Asset Metadata</button>
+              <div class="actions-row">
+                <button id="indexAssetsBtn" class="btn secondary">Index Asset Metadata</button>
+                <button id="clearSessionBtn" class="btn secondary">Clear Session</button>
+              </div>
             </div>
             <div class="card">
               <h2>Engineer Chat</h2>
@@ -56,6 +59,7 @@
               <img id="baselinePreview" alt="Baseline asset" src="" />
               <p id="baselineSummary"></p>
             </div>
+            <button id="baselineSkipBtn" class="btn secondary" type="button" hidden>Continue Without Baseline</button>
           </div>
         </section>
 

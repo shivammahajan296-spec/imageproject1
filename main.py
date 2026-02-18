@@ -18,6 +18,8 @@ from app.models import (
     AssetIndexRequest,
     AssetIndexResponse,
     BaselineAdoptRequest,
+    BaselineSkipRequest,
+    BaselineSkipResponse,
     CadGenerateRequest,
     CadGenerateResponse,
     ChatRequest,
@@ -28,6 +30,8 @@ from app.models import (
     ImageResponse,
     ImageVersion,
     SessionResponse,
+    SessionClearRequest,
+    SessionClearResponse,
 )
 from app.rate_limit import SimpleRateLimiter
 from app.recommendations import build_edit_recommendations
@@ -261,6 +265,40 @@ async def adopt_baseline(payload: BaselineAdoptRequest, request: Request) -> Ima
         image_url_or_base64=image.image_url_or_base64,
         version=image.version,
     )
+
+
+@app.post("/api/baseline/skip", response_model=BaselineSkipResponse)
+async def skip_baseline(payload: BaselineSkipRequest, request: Request) -> BaselineSkipResponse:
+    limiter.check(request, "baseline-skip")
+    state = store.get_or_create(payload.session_id)
+    state.baseline_asset = None
+    if state.step < 4:
+        state.step = 4
+    store.save(state)
+    return BaselineSkipResponse(message="Proceeding without baseline selection.", step=state.step)
+
+
+@app.post("/api/session/clear", response_model=SessionClearResponse)
+async def clear_session(payload: SessionClearRequest, request: Request) -> SessionClearResponse:
+    limiter.check(request, "session-clear")
+    reset_state = store.get_or_create(payload.session_id)
+    # Reset workflow conversation/spec/images/CAD while keeping the same session id for continuity.
+    reset_state.step = 1
+    reset_state.spec = reset_state.spec.__class__()
+    reset_state.missing_fields = []
+    reset_state.required_questions = []
+    reset_state.baseline_decision = None
+    reset_state.baseline_decision_done = False
+    reset_state.baseline_matches = []
+    reset_state.baseline_asset = None
+    reset_state.images = []
+    reset_state.lock_question_asked = False
+    reset_state.lock_confirmed = False
+    reset_state.cadquery_code = None
+    reset_state.design_summary = None
+    reset_state.history = []
+    store.save(reset_state)
+    return SessionClearResponse(message="Session state cleared.")
 
 
 @app.post("/api/cad/generate", response_model=CadGenerateResponse)

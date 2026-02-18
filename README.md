@@ -66,6 +66,10 @@ Put reusable reference images in:
   - Output: `{ cadquery_code, design_summary }`
 - `GET /api/session/{session_id}`
   - Output: full session state
+- `POST /api/session/clear`
+  - Input: `{ session_id }`
+  - Output: `{ message }`
+  - Action: clears chat/spec/baseline/images/CAD for the session
 - `GET /api/recommendations/{session_id}`
   - Output: `{ count, recommendations }`
   - Action: returns suggested visual refinements for Edit Studio
@@ -95,7 +99,7 @@ CAD generation is blocked unless required dimensions are present.
 2. Assistant reaches Step 3 baseline decision.
    - If asset metadata is indexed and a close match exists, app uses that as baseline reference.
 3. User clicks `Generate 2D Concept`.
-4. User iterates: "cap taller, matte texture" and clicks `Iterate Design`.
+4. User iterates: "cap taller, matte texture" and clicks `Run Edit`.
 5. User says final/ready; assistant asks lock question.
 6. User confirms lock.
 7. App auto-triggers CAD generation; returns summary + CadQuery code and enables download.

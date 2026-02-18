@@ -31,6 +31,7 @@ const el = {
   baselineMatch: document.getElementById("baselineMatch"),
   baselinePreview: document.getElementById("baselinePreview"),
   baselineSummary: document.getElementById("baselineSummary"),
+  baselineSkipBtn: document.getElementById("baselineSkipBtn"),
   generate2dBtn: document.getElementById("generate2dBtn"),
   manualEdit: document.getElementById("manualEdit"),
   applyManualBtn: document.getElementById("applyManualBtn"),
@@ -43,6 +44,7 @@ const el = {
   approvalStatus: document.getElementById("approvalStatus"),
   threeDText: document.getElementById("threeDText"),
   indexAssetsBtn: document.getElementById("indexAssetsBtn"),
+  clearSessionBtn: document.getElementById("clearSessionBtn"),
   mainPreview: document.getElementById("mainPreview"),
   previewPlaceholder: document.getElementById("previewPlaceholder"),
   thumbs: document.getElementById("thumbs"),
@@ -224,6 +226,7 @@ function updateFromSession(s) {
   renderBaselineCandidates(s.baseline_matches || [], s.baseline_asset?.asset_rel_path || null);
   renderBaselineMatch(s.baseline_asset);
   const hasBaselineMatch = Boolean((s.baseline_matches || []).length);
+  el.baselineSkipBtn.hidden = !(s.step >= 3 && !s.images?.length);
 
   renderThumbs(s.images || []);
   if (s.images && s.images.length) {
@@ -405,6 +408,18 @@ async function indexAssetMetadata() {
   await refreshSession();
 }
 
+async function clearSessionState() {
+  await apiPost("/api/session/clear", { session_id: state.sessionId });
+  el.messages.innerHTML = "";
+  el.manualEdit.value = "";
+  state.latestImageId = null;
+  state.latestImageData = null;
+  state.cadCode = null;
+  addMessage("system", "Session cleared. Start with packaging requirements.");
+  await refreshSession();
+  setActiveScreen(1);
+}
+
 el.chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const message = el.chatInput.value.trim();
@@ -450,12 +465,31 @@ el.indexAssetsBtn.addEventListener("click", async () => {
   }
 });
 
+el.clearSessionBtn.addEventListener("click", async () => {
+  try {
+    await clearSessionState();
+  } catch (err) {
+    addMessage("system", err.message);
+  }
+});
+
 el.tab1.addEventListener("click", () => setActiveScreen(1));
 el.tab2.addEventListener("click", () => {
   if (!el.tab2.disabled) setActiveScreen(2);
 });
 el.tab3.addEventListener("click", () => {
   if (!el.tab3.disabled) setActiveScreen(3);
+});
+
+el.baselineSkipBtn.addEventListener("click", async () => {
+  try {
+    await apiPost("/api/baseline/skip", { session_id: state.sessionId });
+    await refreshSession();
+    setActiveScreen(2);
+    addMessage("system", "Proceeding without baseline. Generate 2D concept to start design.");
+  } catch (err) {
+    addMessage("system", err.message);
+  }
 });
 
 (async function init() {
