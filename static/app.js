@@ -124,17 +124,39 @@ function renderMainImage(src) {
 function renderThumbs(images) {
   el.thumbs.innerHTML = "";
   images.forEach((img) => {
-    const tile = document.createElement("button");
-    tile.type = "button";
-    tile.className = "thumb";
-    tile.innerHTML = `<img src="${normalizeImageSource(img.image_url_or_base64)}" alt="v${img.version}" /><span>v${img.version}</span>`;
-    tile.addEventListener("click", () => {
+    const tile = document.createElement("div");
+    tile.className = "thumb-card";
+    tile.innerHTML = `
+      <button type="button" class="thumb">
+        <img src="${normalizeImageSource(img.image_url_or_base64)}" alt="v${img.version}" />
+        <span>v${img.version}</span>
+      </button>
+      <button type="button" class="btn tiny secondary thumb-approve">Approve v${img.version}</button>
+    `;
+    tile.querySelector(".thumb").addEventListener("click", () => {
       state.latestImageId = img.image_id;
       state.latestImageData = normalizeImageSource(img.image_url_or_base64);
       renderMainImage(state.latestImageData);
     });
+    tile.querySelector(".thumb-approve").addEventListener("click", async () => {
+      await approveVersion(img);
+    });
     el.thumbs.appendChild(tile);
   });
+}
+
+async function approveVersion(img) {
+  state.latestImageId = img.image_id;
+  state.latestImageData = normalizeImageSource(img.image_url_or_base64);
+  renderMainImage(state.latestImageData);
+  addMessage("system", `Approving v${img.version} and moving to lock confirmation...`);
+  const data = await apiPost("/api/chat", {
+    session_id: state.sessionId,
+    user_message: `Use version v${img.version} as final. Ready to lock this design.`,
+  });
+  addMessage("assistant", data.assistant_message);
+  await refreshSession();
+  setActiveScreen(3);
 }
 
 function renderBaselineMatch(match) {
