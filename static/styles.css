@@ -152,6 +152,7 @@ body {
 .btn.secondary { background: #737373; }
 .btn.warning { background: #a64b00; }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn.pseudo-disabled { opacity: .55; cursor: not-allowed; }
 
 .baseline-match {
   margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: #fffaf5;

@@ -66,16 +66,24 @@ function reloadAfterImageUpdate() {
   window.location.reload();
 }
 
+function canRunEditNow() {
+  const s = state.session;
+  if (!s) return false;
+  const hasImages = Boolean(s.images && s.images.length);
+  return hasImages && !s.lock_confirmed && !operationInFlight;
+}
+
 function applyActionAvailability() {
   const s = state.session;
   if (!s) return;
   const hasImages = Boolean(s.images && s.images.length);
   const canGenerate2D = s.step >= 3 && !hasImages;
-  const canRunEdit = hasImages && !s.lock_confirmed;
   const canLock = s.step === 5 && s.lock_question_asked;
 
   el.generate2dBtn.disabled = operationInFlight || !canGenerate2D;
-  el.applyManualBtn.disabled = operationInFlight || !canRunEdit;
+  // Keep Run Edit clickable so click handler can always provide deterministic feedback.
+  el.applyManualBtn.disabled = false;
+  el.applyManualBtn.classList.toggle("pseudo-disabled", !canRunEditNow());
   el.lockBtn.disabled = operationInFlight || !canLock;
 }
 
@@ -443,6 +451,10 @@ async function generate2D() {
 }
 
 async function runManualEdit() {
+  if (!canRunEditNow()) {
+    addMessage("system", "Run Edit is currently unavailable. Ensure an image exists and design is not locked.");
+    return;
+  }
   if (!state.latestImageId) {
     addMessage("system", "No baseline image found. Generate 2D concept first.");
     return;
