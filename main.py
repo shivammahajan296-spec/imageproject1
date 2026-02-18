@@ -399,7 +399,11 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
         else (latest.image_url_or_base64 if latest else payload.image_id)
     )
     latest_ref = _normalize_image_ref_for_edit(latest_ref)
-    edited = await straive.image_edit(latest_ref, payload.instruction_prompt, api_key_override=req_api_key)
+    try:
+        edited = await straive.image_edit(latest_ref, payload.instruction_prompt, api_key_override=req_api_key)
+    except Exception as exc:
+        logger.error("Image edit failed. session=%s error=%s", payload.session_id, exc)
+        raise HTTPException(status_code=502, detail=f"Image edit failed: {exc}") from exc
     version = len(state.images) + 1
     image_data_url, local_path = await _materialize_session_image(
         payload.session_id, version, edited["image_url_or_base64"], req_api_key=req_api_key

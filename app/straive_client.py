@@ -96,13 +96,9 @@ class StraiveClient:
             return self._fallback_image(f"{image_ref}: {instruction_prompt}")
 
         image_bytes, mime_type, filename = await self._image_ref_to_bytes(image_ref)
-        data = {
-            "model": "gpt-image-1",
-            "prompt": instruction_prompt,
-            "response_format": "b64_json",
-        }
-        result = await self._post_image_edit(
-            data=data,
+        result = await self._post_image_edit_with_fallbacks(
+            instruction_prompt=instruction_prompt,
+            image_ref=image_ref,
             image_bytes=image_bytes,
             mime_type=mime_type,
             filename=filename,
@@ -208,6 +204,7 @@ class StraiveClient:
 
     async def _post_image_edit(
         self,
+        url: str,
         data: dict[str, Any],
         image_bytes: bytes,
         mime_type: str,
@@ -218,25 +215,86 @@ class StraiveClient:
         auth_headers = {"Authorization": f"Bearer {api_key_override or self.settings.straive_api_key}"}
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
-                self.settings.image_edit_url,
+                url,
                 headers=auth_headers,
                 data=data,
                 files={"image": (filename, image_bytes, mime_type)},
             )
-            if resp.status_code >= 400 and "response_format" in data:
-                fallback_data = dict(data)
-                fallback_data.pop("response_format", None)
-                logger.warning("Image edit retrying without response_format due to status %s", resp.status_code)
-                resp = await client.post(
-                    self.settings.image_edit_url,
-                    headers=auth_headers,
-                    data=fallback_data,
-                    files={"image": (filename, image_bytes, mime_type)},
-                )
             resp.raise_for_status()
             out = resp.json()
             logger.info("Straive image edit response: %s", self._redact(out))
             return out
+
+    async def _post_image_edit_json(
+        self, url: str, payload: dict[str, Any], api_key_override: str | None = None
+    ) -> dict[str, Any]:
+        logger.info("Straive image edit JSON request: %s", self._redact(payload))
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(
+                url,
+                headers=self._headers(api_key_override=api_key_override),
+                json=payload,
+            )
+            resp.raise_for_status()
+            out = resp.json()
+            logger.info("Straive image edit JSON response: %s", self._redact(out))
+            return out
+
+    async def _post_image_edit_with_fallbacks(
+        self,
+        instruction_prompt: str,
+        image_ref: str,
+        image_bytes: bytes,
+        mime_type: str,
+        filename: str,
+        api_key_override: str | None = None,
+    ) -> dict[str, Any]:
+        urls = [self.settings.image_edit_url]
+        if "/openai/" in self.settings.image_edit_url:
+            urls.append(self.settings.image_edit_url.replace("/openai/", "/"))
+
+        errors: list[str] = []
+        # 1) Multipart style exactly like known working snippet.
+        for url in urls:
+            try:
+                return await self._post_image_edit(
+                    url=url,
+                    data={"model": "gpt-image-1", "prompt": instruction_prompt},
+                    image_bytes=image_bytes,
+                    mime_type=mime_type,
+                    filename=filename,
+                    api_key_override=api_key_override,
+                )
+            except Exception as exc:
+                errors.append(f"multipart-basic@{url}: {exc}")
+
+        # 2) Multipart + response_format hint.
+        for url in urls:
+            try:
+                return await self._post_image_edit(
+                    url=url,
+                    data={"model": "gpt-image-1", "prompt": instruction_prompt, "response_format": "b64_json"},
+                    image_bytes=image_bytes,
+                    mime_type=mime_type,
+                    filename=filename,
+                    api_key_override=api_key_override,
+                )
+            except Exception as exc:
+                errors.append(f"multipart-b64@{url}: {exc}")
+
+        # 3) JSON fallback (some gateways only support json image input in this path).
+        data_url_ref = image_ref if image_ref.startswith("data:image") else f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('utf-8')}"
+        for url in urls:
+            try:
+                return await self._post_image_edit_json(
+                    url=url,
+                    payload={"model": "gpt-image-1", "image": data_url_ref, "prompt": instruction_prompt},
+                    api_key_override=api_key_override,
+                )
+            except Exception as exc:
+                errors.append(f"json@{url}: {exc}")
+
+        raise RuntimeError("All edit strategies failed: " + " | ".join(errors[:3]))
 
     async def describe_packaging_asset(
         self, image_path: Path, api_key_override: str | None = None
