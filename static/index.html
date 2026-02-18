@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI-Powered Intelligent Pack Design</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <h1>AI-Powered Intelligent Pack Design</h1>
+        <div class="top-actions">
+          <div class="key-box">
+            <input id="apiKeyInput" type="password" placeholder="Enter Straive API key" />
+            <button id="saveKeyBtn" class="btn tiny" type="button">Save Key</button>
+            <button id="clearKeyBtn" class="btn tiny secondary" type="button">Clear</button>
+          </div>
+          <div id="stepBadge" class="step-badge">Workflow Step: 1</div>
+        </div>
+      </header>
+
+      <nav class="screen-tabs">
+        <button id="tab1" class="tab active" type="button">1. Requirements & Baseline</button>
+        <button id="tab2" class="tab" type="button">2. Edit Studio</button>
+        <button id="tab3" class="tab" type="button">3. Approve & 3D</button>
+        <button id="tab4" class="tab" type="button">4. Progress</button>
+      </nav>
+
+      <main>
+        <section id="screen1" class="screen active">
+          <div class="two-col">
+            <div class="card">
+              <h2>Requirements Refinement</h2>
+              <details class="spec-panel" open>
+                <summary>Design Spec</summary>
+                <p id="specSummary">No specs collected yet.</p>
+              </details>
+              <div id="missingInfo" class="missing-info"></div>
+              <button id="indexAssetsBtn" class="btn secondary">Index Asset Metadata</button>
+            </div>
+            <div class="card">
+              <h2>Engineer Chat</h2>
+              <div id="messages" class="messages"></div>
+              <form id="chatForm" class="chat-input-row">
+                <input id="chatInput" type="text" placeholder="Describe product type, volume, material, closure, style" required />
+                <button class="btn" type="submit">Send</button>
+              </form>
+            </div>
+          </div>
+          <div class="card baseline-card">
+            <h2>Baseline Decision</h2>
+            <p id="baselineStatus">Baseline decision pending.</p>
+            <div id="baselineMatch" class="baseline-match" hidden>
+              <img id="baselinePreview" alt="Baseline asset" src="" />
+              <p id="baselineSummary"></p>
+            </div>
+          </div>
+        </section>
+
+        <section id="screen2" class="screen">
+          <div class="two-col">
+            <div class="card">
+              <h2>Edit Studio</h2>
+              <div class="preview-card">
+                <img id="mainPreview" alt="Latest concept" src="" />
+                <div id="previewPlaceholder" class="placeholder">No 2D concept yet</div>
+              </div>
+              <div class="actions-row">
+                <button id="generate2dBtn" class="btn">Generate 2D Concept</button>
+                <button id="iterateBtn" class="btn">Apply Manual Edit</button>
+              </div>
+              <div class="thumbs-card">
+                <h3>Version History</h3>
+                <div id="thumbs" class="thumb-grid"></div>
+              </div>
+            </div>
+            <div class="card">
+              <h2>Recommended Edits (<span id="recCount">0</span>)</h2>
+              <div id="recList" class="rec-list"></div>
+              <label for="manualEdit" class="label">Manual edit instruction</label>
+              <textarea id="manualEdit" rows="4" placeholder="Example: make cap 10% taller and reduce body height by 5%"></textarea>
+              <button id="applyManualBtn" class="btn">Run Manual Edit</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="screen3" class="screen">
+          <div class="two-col">
+            <div class="card">
+              <h2>Approval</h2>
+              <p id="approvalStatus">Design not locked yet.</p>
+              <button id="lockBtn" class="btn warning">Lock Design</button>
+              <button id="saveProgressBtn" class="btn">Save Progress</button>
+              <button id="downloadCadBtn" class="btn secondary" disabled>Download CadQuery Code</button>
+            </div>
+            <div class="card">
+              <h2>3D Preview Status</h2>
+              <div id="threeDPanel" class="three-d">
+                <p id="threeDText">3D CAD preview is available after lock + CAD generation.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="screen4" class="screen">
+          <div class="two-col">
+            <div class="card">
+              <h2>Saved / In Progress</h2>
+              <div id="progressList" class="list-grid"></div>
+            </div>
+            <div class="card">
+              <h2>Approved Designs</h2>
+              <div id="approvedList" class="list-grid"></div>
+            </div>
+          </div>
+          <div class="card" style="margin-top: 12px;">
+            <h2>Saved Checkpoints</h2>
+            <div id="checkpointList" class="list-grid"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
