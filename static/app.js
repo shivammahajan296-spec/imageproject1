@@ -15,12 +15,14 @@ const el = {
   tab1: document.getElementById("tab1"),
   tab2: document.getElementById("tab2"),
   tab3: document.getElementById("tab3"),
+  tab4: document.getElementById("tab4"),
   apiKeyInput: document.getElementById("apiKeyInput"),
   saveKeyBtn: document.getElementById("saveKeyBtn"),
   clearKeyBtn: document.getElementById("clearKeyBtn"),
   screen1: document.getElementById("screen1"),
   screen2: document.getElementById("screen2"),
   screen3: document.getElementById("screen3"),
+  screen4: document.getElementById("screen4"),
   messages: document.getElementById("messages"),
   chatForm: document.getElementById("chatForm"),
   chatInput: document.getElementById("chatInput"),
@@ -48,6 +50,9 @@ const el = {
   mainPreview: document.getElementById("mainPreview"),
   previewPlaceholder: document.getElementById("previewPlaceholder"),
   thumbs: document.getElementById("thumbs"),
+  refreshCatalogBtn: document.getElementById("refreshCatalogBtn"),
+  catalogCount: document.getElementById("catalogCount"),
+  assetCatalogList: document.getElementById("assetCatalogList"),
 };
 let operationInFlight = false;
 
@@ -151,8 +156,8 @@ function renderBaselineCandidates(matches, selectedRelPath) {
 
 function setActiveScreen(screenNumber) {
   state.activeScreen = screenNumber;
-  [el.tab1, el.tab2, el.tab3].forEach((tab, i) => tab.classList.toggle("active", i + 1 === screenNumber));
-  [el.screen1, el.screen2, el.screen3].forEach((screen, i) => screen.classList.toggle("active", i + 1 === screenNumber));
+  [el.tab1, el.tab2, el.tab3, el.tab4].forEach((tab, i) => tab.classList.toggle("active", i + 1 === screenNumber));
+  [el.screen1, el.screen2, el.screen3, el.screen4].forEach((screen, i) => screen.classList.toggle("active", i + 1 === screenNumber));
 }
 
 function computeAllowedScreen(step, hasBaselineMatch = false) {
@@ -160,6 +165,33 @@ function computeAllowedScreen(step, hasBaselineMatch = false) {
   if (step <= 3) return 1;
   if (step <= 5) return 2;
   return 3;
+}
+
+function renderAssetCatalog(items) {
+  el.assetCatalogList.innerHTML = "";
+  el.catalogCount.textContent = `Total assets: ${items.length}`;
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "list-item";
+    empty.textContent = "No indexed assets found. Click Index Asset Metadata first.";
+    el.assetCatalogList.appendChild(empty);
+    return;
+  }
+  items.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "list-item";
+    const previewSrc = `/asset-files/${encodeURIComponent(item.asset_rel_path).replace(/%2F/g, "/")}`;
+    card.innerHTML = `
+      <strong>${item.filename}</strong>
+      <img class="candidate-thumb" src="${previewSrc}" alt="${item.filename}" />
+      <div class="list-meta">${item.summary || "No summary"}</div>
+      <div class="list-meta">Type: ${item.product_type || "-"} | Material: ${item.material || "-"} | Closure: ${item.closure_type || "-"}</div>
+      <div class="list-meta">Style: ${item.design_style || "-"} | Size/Volume: ${item.size_or_volume || "-"}</div>
+      <div class="list-meta">Tags: ${item.tags || "-"}</div>
+      <div class="list-meta">Updated: ${item.updated_at}</div>
+    `;
+    el.assetCatalogList.appendChild(card);
+  });
 }
 
 
@@ -265,7 +297,7 @@ function updateFromSession(s) {
   const allowed = computeAllowedScreen(s.step, hasBaselineMatch);
   el.tab2.disabled = allowed < 2;
   el.tab3.disabled = allowed < 3;
-  const nextScreen = Math.min(state.activeScreen, allowed);
+  const nextScreen = state.activeScreen === 4 ? 4 : Math.min(state.activeScreen, allowed);
   setActiveScreen(nextScreen || allowed);
 }
 
@@ -273,6 +305,11 @@ async function refreshSession() {
   const data = await apiGet(`/api/session/${encodeURIComponent(state.sessionId)}`);
   updateFromSession(data.state);
   await refreshRecommendations();
+}
+
+async function refreshAssetCatalog() {
+  const data = await apiGet("/api/assets/catalog");
+  renderAssetCatalog(data.items || []);
 }
 
 async function refreshRecommendations() {
@@ -406,6 +443,7 @@ async function indexAssetMetadata() {
   const res = await apiPost("/api/assets/index", { force_reindex: false });
   addMessage("system", `Indexed ${res.indexed_count} assets out of ${res.total_assets}.`);
   await refreshSession();
+  await refreshAssetCatalog();
 }
 
 async function clearSessionState() {
@@ -480,6 +518,14 @@ el.tab2.addEventListener("click", () => {
 el.tab3.addEventListener("click", () => {
   if (!el.tab3.disabled) setActiveScreen(3);
 });
+el.tab4.addEventListener("click", async () => {
+  setActiveScreen(4);
+  try {
+    await refreshAssetCatalog();
+  } catch (err) {
+    addMessage("system", err.message);
+  }
+});
 
 el.baselineSkipBtn.addEventListener("click", async () => {
   try {
@@ -492,11 +538,20 @@ el.baselineSkipBtn.addEventListener("click", async () => {
   }
 });
 
+el.refreshCatalogBtn.addEventListener("click", async () => {
+  try {
+    await refreshAssetCatalog();
+  } catch (err) {
+    addMessage("system", err.message);
+  }
+});
+
 (async function init() {
   el.apiKeyInput.value = state.apiKey;
   addMessage("system", "Session initialized. Start with packaging requirements.");
   try {
     await refreshSession();
+    await refreshAssetCatalog();
   } catch (err) {
     addMessage("system", "Unable to restore previous session state.");
   }

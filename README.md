@@ -77,6 +77,9 @@ Put reusable reference images in:
   - Input: `{ force_reindex }`
   - Output: `{ indexed_count, total_assets }`
   - Action: runs AI metadata extraction for images in `assets/`, then baseline search at Step 3 uses these records
+- `GET /api/assets/catalog`
+  - Output: `{ total, items[] }`
+  - Action: returns indexed asset metadata for the dedicated Assets DB screen
 
 ## Workflow Enforcement
 1. Collect mandatory fields (product type, size/volume, material, closure, style).

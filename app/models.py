@@ -124,3 +124,21 @@ class SessionClearRequest(BaseModel):
 
 class SessionClearResponse(BaseModel):
     message: str
+
+
+class AssetCatalogItem(BaseModel):
+    asset_rel_path: str
+    filename: str
+    product_type: str | None = None
+    material: str | None = None
+    closure_type: str | None = None
+    design_style: str | None = None
+    size_or_volume: str | None = None
+    tags: str | None = None
+    summary: str | None = None
+    updated_at: str
+
+
+class AssetCatalogResponse(BaseModel):
+    total: int
+    items: list[AssetCatalogItem] = Field(default_factory=list)

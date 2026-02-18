@@ -15,6 +15,7 @@ from app.asset_search import AssetCatalog
 from app.cad import CadGenerationError, generate_cadquery_code
 from app.config import load_settings
 from app.models import (
+    AssetCatalogResponse,
     AssetIndexRequest,
     AssetIndexResponse,
     BaselineAdoptRequest,
@@ -161,6 +162,13 @@ async def index_assets(payload: AssetIndexRequest, request: Request) -> AssetInd
         straive=straive, force_reindex=payload.force_reindex, api_key_override=req_api_key
     )
     return AssetIndexResponse(indexed_count=indexed_count, total_assets=total_assets)
+
+
+@app.get("/api/assets/catalog", response_model=AssetCatalogResponse)
+async def asset_catalog_list(request: Request) -> AssetCatalogResponse:
+    limiter.check(request, "assets-catalog")
+    items = asset_catalog.list_catalog(limit=300)
+    return AssetCatalogResponse(total=len(items), items=items)
 
 
 @app.get("/api/recommendations/{session_id}", response_model=EditRecommendationsResponse)

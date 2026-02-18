@@ -75,6 +75,36 @@ class AssetCatalog:
             row = conn.execute("SELECT COUNT(*) AS c FROM asset_metadata").fetchone()
         return int(row["c"]) if row else 0
 
+    def list_catalog(self, limit: int = 300) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT asset_path, filename, product_type, material, closure_type, design_style,
+                       size_or_volume, tags, summary, updated_at
+                FROM asset_metadata
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            out.append(
+                {
+                    "asset_rel_path": self._relative_asset_path(row["asset_path"]),
+                    "filename": row["filename"],
+                    "product_type": row["product_type"],
+                    "material": row["material"],
+                    "closure_type": row["closure_type"],
+                    "design_style": row["design_style"],
+                    "size_or_volume": row["size_or_volume"],
+                    "tags": row["tags"],
+                    "summary": row["summary"],
+                    "updated_at": row["updated_at"],
+                }
+            )
+        return out
+
     def _has_asset(self, asset: Path) -> bool:
         with self._conn() as conn:
             row = conn.execute(

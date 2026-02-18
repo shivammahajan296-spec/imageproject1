@@ -159,6 +159,12 @@ body {
 }
 
 .list-grid { display: grid; gap: 8px; }
+.catalog-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  margin-top: 10px;
+}
 .list-item {
   border: 1px solid var(--line);
   border-radius: 10px;
