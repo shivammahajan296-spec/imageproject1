@@ -67,7 +67,7 @@ function applyActionAvailability() {
   if (!s) return;
   const hasImages = Boolean(s.images && s.images.length);
   const canGenerate2D = s.step >= 3 && !hasImages;
-  const canRunEdit = s.step >= 4 && hasImages && !s.lock_confirmed;
+  const canRunEdit = hasImages && !s.lock_confirmed;
   const canLock = s.step === 5 && s.lock_question_asked;
 
   el.generate2dBtn.disabled = operationInFlight || !canGenerate2D;

@@ -369,8 +369,12 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
     )
     state.images.append(image)
 
-    if state.step < 4:
-        state.step = 4
+    # New concept generation should always move workflow into active 2D iteration mode.
+    state.step = 4
+    state.lock_question_asked = False
+    state.lock_confirmed = False
+    state.cadquery_code = None
+    state.design_summary = None
 
     store.save(state)
     return ImageResponse(
@@ -386,10 +390,12 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
     state = store.get_or_create(payload.session_id)
     req_api_key = _request_api_key(request)
 
-    if state.step < 4 or not state.images:
-        raise HTTPException(status_code=400, detail="Workflow has not reached STEP 4 with a reference image.")
+    if not state.images:
+        raise HTTPException(status_code=400, detail="No reference image found. Generate or adopt a concept first.")
     if state.lock_confirmed:
         raise HTTPException(status_code=400, detail="Design is locked. Iteration is not allowed.")
+    if state.step < 4:
+        state.step = 4
 
     # Always edit the latest session visual so iteration is continuous from the current reference.
     latest = state.images[-1] if state.images else None
