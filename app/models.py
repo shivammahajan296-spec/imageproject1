@@ -104,39 +104,6 @@ class EditRecommendationsResponse(BaseModel):
     recommendations: list[str] = Field(default_factory=list)
 
 
-class SaveProgressRequest(BaseModel):
-    session_id: str = Field(min_length=1, max_length=120)
-    label: str | None = Field(default=None, max_length=120)
-
-
-class SaveProgressResponse(BaseModel):
-    checkpoint_id: int
-    saved_at: str
-
-
-class ProgressSessionItem(BaseModel):
-    session_id: str
-    step: int
-    updated_at: str
-    approved: bool
-    baseline_decision: str | None = None
-    design_summary: str | None = None
-
-
-class ProgressCheckpointItem(BaseModel):
-    checkpoint_id: int
-    session_id: str
-    label: str
-    created_at: str
-    step: int
-
-
-class ProgressResponse(BaseModel):
-    in_progress: list[ProgressSessionItem] = Field(default_factory=list)
-    approved_designs: list[ProgressSessionItem] = Field(default_factory=list)
-    checkpoints: list[ProgressCheckpointItem] = Field(default_factory=list)
-
-
 class BaselineAdoptRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=120)
     asset_rel_path: str = Field(min_length=1, max_length=500)

@@ -14,7 +14,6 @@ Production-oriented FastAPI + vanilla JS app that enforces a strict packaging-en
   - Requirements + Baseline
   - Edit Studio (recommended edits + manual edits)
   - Approval + 3D status + CAD download
-  - Progress page (in-progress sessions, approved designs, saved checkpoints)
 
 ## Tech
 - Backend: FastAPI
@@ -70,13 +69,6 @@ Put reusable reference images in:
 - `GET /api/recommendations/{session_id}`
   - Output: `{ count, recommendations }`
   - Action: returns suggested visual refinements for Edit Studio
-- `POST /api/session/save-progress`
-  - Input: `{ session_id, label? }`
-  - Output: `{ checkpoint_id, saved_at }`
-  - Action: saves a named checkpoint snapshot of current session
-- `GET /api/progress`
-  - Output: `{ in_progress, approved_designs, checkpoints }`
-  - Action: powers progress dashboard and approved designs column
 - `POST /api/assets/index`
   - Input: `{ force_reindex }`
   - Output: `{ indexed_count, total_assets }`

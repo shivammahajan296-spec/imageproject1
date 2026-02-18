@@ -23,9 +23,6 @@ from app.models import (
     ChatRequest,
     ChatResponse,
     EditRecommendationsResponse,
-    ProgressResponse,
-    SaveProgressRequest,
-    SaveProgressResponse,
     ImageEditRequest,
     ImageGenerateRequest,
     ImageResponse,
@@ -168,24 +165,6 @@ async def get_recommendations(session_id: str, request: Request) -> EditRecommen
     state = store.get_or_create(session_id)
     recs = build_edit_recommendations(state.spec)
     return EditRecommendationsResponse(count=len(recs), recommendations=recs)
-
-
-@app.post("/api/session/save-progress", response_model=SaveProgressResponse)
-async def save_progress(payload: SaveProgressRequest, request: Request) -> SaveProgressResponse:
-    limiter.check(request, "save-progress")
-    checkpoint_id, saved_at = store.save_checkpoint(payload.session_id, payload.label)
-    return SaveProgressResponse(checkpoint_id=checkpoint_id, saved_at=saved_at)
-
-
-@app.get("/api/progress", response_model=ProgressResponse)
-async def get_progress(request: Request) -> ProgressResponse:
-    limiter.check(request, "progress")
-    snapshot = store.progress_snapshot()
-    return ProgressResponse(
-        in_progress=snapshot["in_progress"],
-        approved_designs=snapshot["approved_designs"],
-        checkpoints=snapshot["checkpoints"],
-    )
 
 
 @app.post("/api/image/generate", response_model=ImageResponse)

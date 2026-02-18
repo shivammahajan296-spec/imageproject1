@@ -15,14 +15,12 @@ const el = {
   tab1: document.getElementById("tab1"),
   tab2: document.getElementById("tab2"),
   tab3: document.getElementById("tab3"),
-  tab4: document.getElementById("tab4"),
   apiKeyInput: document.getElementById("apiKeyInput"),
   saveKeyBtn: document.getElementById("saveKeyBtn"),
   clearKeyBtn: document.getElementById("clearKeyBtn"),
   screen1: document.getElementById("screen1"),
   screen2: document.getElementById("screen2"),
   screen3: document.getElementById("screen3"),
-  screen4: document.getElementById("screen4"),
   messages: document.getElementById("messages"),
   chatForm: document.getElementById("chatForm"),
   chatInput: document.getElementById("chatInput"),
@@ -34,24 +32,22 @@ const el = {
   baselinePreview: document.getElementById("baselinePreview"),
   baselineSummary: document.getElementById("baselineSummary"),
   generate2dBtn: document.getElementById("generate2dBtn"),
-  iterateBtn: document.getElementById("iterateBtn"),
   manualEdit: document.getElementById("manualEdit"),
   applyManualBtn: document.getElementById("applyManualBtn"),
   recCount: document.getElementById("recCount"),
   recList: document.getElementById("recList"),
+  opProgress: document.getElementById("opProgress"),
+  opProgressText: document.getElementById("opProgressText"),
   downloadCadBtn: document.getElementById("downloadCadBtn"),
   lockBtn: document.getElementById("lockBtn"),
-  saveProgressBtn: document.getElementById("saveProgressBtn"),
   approvalStatus: document.getElementById("approvalStatus"),
   threeDText: document.getElementById("threeDText"),
   indexAssetsBtn: document.getElementById("indexAssetsBtn"),
   mainPreview: document.getElementById("mainPreview"),
   previewPlaceholder: document.getElementById("previewPlaceholder"),
   thumbs: document.getElementById("thumbs"),
-  progressList: document.getElementById("progressList"),
-  approvedList: document.getElementById("approvedList"),
-  checkpointList: document.getElementById("checkpointList"),
 };
+let operationInFlight = false;
 
 function addMessage(role, content) {
   const div = document.createElement("div");
@@ -153,8 +149,8 @@ function renderBaselineCandidates(matches, selectedRelPath) {
 
 function setActiveScreen(screenNumber) {
   state.activeScreen = screenNumber;
-  [el.tab1, el.tab2, el.tab3, el.tab4].forEach((tab, i) => tab.classList.toggle("active", i + 1 === screenNumber));
-  [el.screen1, el.screen2, el.screen3, el.screen4].forEach((screen, i) => screen.classList.toggle("active", i + 1 === screenNumber));
+  [el.tab1, el.tab2, el.tab3].forEach((tab, i) => tab.classList.toggle("active", i + 1 === screenNumber));
+  [el.screen1, el.screen2, el.screen3].forEach((screen, i) => screen.classList.toggle("active", i + 1 === screenNumber));
 }
 
 function computeAllowedScreen(step, hasBaselineMatch = false) {
@@ -164,58 +160,6 @@ function computeAllowedScreen(step, hasBaselineMatch = false) {
   return 3;
 }
 
-function renderSessionList(container, items, emptyText) {
-  container.innerHTML = "";
-  if (!items.length) {
-    const row = document.createElement("div");
-    row.className = "list-item";
-    row.textContent = emptyText;
-    container.appendChild(row);
-    return;
-  }
-  items.forEach((item) => {
-    const row = document.createElement("div");
-    row.className = "list-item";
-    row.innerHTML = `
-      <strong>${item.session_id}</strong>
-      <div class="list-meta">Step ${item.step} | Updated ${item.updated_at}</div>
-      <div class="list-meta">${item.design_summary || item.baseline_decision || "No summary yet."}</div>
-    `;
-    const actions = document.createElement("div");
-    actions.className = "inline-actions";
-    const openBtn = document.createElement("button");
-    openBtn.type = "button";
-    openBtn.className = "btn tiny";
-    openBtn.textContent = "Open Session";
-    openBtn.addEventListener("click", async () => {
-      await switchSession(item.session_id);
-    });
-    actions.appendChild(openBtn);
-    row.appendChild(actions);
-    container.appendChild(row);
-  });
-}
-
-function renderCheckpoints(items) {
-  el.checkpointList.innerHTML = "";
-  if (!items.length) {
-    const row = document.createElement("div");
-    row.className = "list-item";
-    row.textContent = "No checkpoints saved yet.";
-    el.checkpointList.appendChild(row);
-    return;
-  }
-  items.forEach((item) => {
-    const row = document.createElement("div");
-    row.className = "list-item";
-    row.innerHTML = `
-      <strong>${item.label}</strong>
-      <div class="list-meta">Session ${item.session_id} | Step ${item.step}</div>
-      <div class="list-meta">Saved ${item.created_at}</div>
-    `;
-    el.checkpointList.appendChild(row);
-  });
-}
 
 function formatSpec(spec) {
   const line = [
@@ -257,6 +201,18 @@ async function apiGet(url) {
   return data;
 }
 
+function setOperationLoading(isLoading, text = "Processing...") {
+  operationInFlight = isLoading;
+  el.opProgress.hidden = !isLoading;
+  if (isLoading) {
+    el.opProgressText.textContent = text;
+  }
+  const locked = Boolean(isLoading);
+  el.generate2dBtn.disabled = locked || el.generate2dBtn.disabled;
+  el.applyManualBtn.disabled = locked || el.applyManualBtn.disabled;
+  el.lockBtn.disabled = locked || el.lockBtn.disabled;
+}
+
 function updateFromSession(s) {
   state.session = s;
   el.stepBadge.textContent = `Workflow Step: ${s.step}`;
@@ -280,9 +236,11 @@ function updateFromSession(s) {
   }
 
   el.generate2dBtn.disabled = !(s.step >= 3 && (!s.images || s.images.length === 0));
-  el.iterateBtn.disabled = !(s.step >= 4 && s.images && s.images.length && !s.lock_confirmed);
   el.applyManualBtn.disabled = !(s.step >= 4 && s.images && s.images.length && !s.lock_confirmed);
   el.lockBtn.disabled = !(s.step === 5 && s.lock_question_asked);
+  if (operationInFlight) {
+    setOperationLoading(true, el.opProgressText.textContent || "Processing...");
+  }
 
   if (s.lock_confirmed) {
     el.approvalStatus.textContent = "Design locked. CAD generation in progress or completed.";
@@ -304,7 +262,7 @@ function updateFromSession(s) {
   const allowed = computeAllowedScreen(s.step, hasBaselineMatch);
   el.tab2.disabled = allowed < 2;
   el.tab3.disabled = allowed < 3;
-  const nextScreen = state.activeScreen === 4 ? 4 : Math.min(state.activeScreen, allowed);
+  const nextScreen = Math.min(state.activeScreen, allowed);
   setActiveScreen(nextScreen || allowed);
 }
 
@@ -312,13 +270,6 @@ async function refreshSession() {
   const data = await apiGet(`/api/session/${encodeURIComponent(state.sessionId)}`);
   updateFromSession(data.state);
   await refreshRecommendations();
-}
-
-async function refreshProgressBoard() {
-  const data = await apiGet("/api/progress");
-  renderSessionList(el.progressList, data.in_progress || [], "No in-progress sessions.");
-  renderSessionList(el.approvedList, data.approved_designs || [], "No approved designs yet.");
-  renderCheckpoints(data.checkpoints || []);
 }
 
 async function refreshRecommendations() {
@@ -335,9 +286,9 @@ async function refreshRecommendations() {
     btn.type = "button";
     btn.className = "rec-item";
     btn.textContent = rec;
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       el.manualEdit.value = rec;
-      await runManualEdit();
+      addMessage("system", "Recommendation copied to manual edit. Click Run Edit to apply.");
     });
     el.recList.appendChild(btn);
   });
@@ -383,9 +334,15 @@ async function generate2D() {
   const defaultPrompt = build2DPromptFromSession();
   const prompt = window.prompt("Enter 2D concept prompt", defaultPrompt);
   if (!prompt) return;
-  const res = await apiPost("/api/image/generate", { session_id: state.sessionId, prompt });
-  addMessage("system", `Generated concept image version v${res.version}.`);
-  await refreshSession();
+  setOperationLoading(true, "Generating 2D concept...");
+  addMessage("system", "Generating 2D concept...");
+  try {
+    const res = await apiPost("/api/image/generate", { session_id: state.sessionId, prompt });
+    addMessage("system", `Generated concept image version v${res.version}.`);
+    await refreshSession();
+  } finally {
+    setOperationLoading(false);
+  }
 }
 
 async function runManualEdit() {
@@ -398,13 +355,19 @@ async function runManualEdit() {
     addMessage("system", "Type a manual edit instruction first.");
     return;
   }
-  const res = await apiPost("/api/image/edit", {
-    session_id: state.sessionId,
-    image_id: state.latestImageId,
-    instruction_prompt: instruction,
-  });
-  addMessage("system", `Created iteration version v${res.version}.`);
-  await refreshSession();
+  setOperationLoading(true, "Applying edit to current design...");
+  addMessage("system", "Applying edit...");
+  try {
+    const res = await apiPost("/api/image/edit", {
+      session_id: state.sessionId,
+      image_id: state.latestImageId,
+      instruction_prompt: instruction,
+    });
+    addMessage("system", `Created iteration version v${res.version}.`);
+    await refreshSession();
+  } finally {
+    setOperationLoading(false);
+  }
 }
 
 async function lockDesign() {
@@ -412,11 +375,15 @@ async function lockDesign() {
 }
 
 async function generateCad() {
-  const res = await apiPost("/api/cad/generate", { session_id: state.sessionId });
-  state.cadCode = res.cadquery_code;
-  addMessage("assistant", `Final design summary: ${res.design_summary}\nSTEP export is supported from the provided CadQuery code.`);
-  await refreshSession();
-  await refreshProgressBoard();
+  setOperationLoading(true, "Generating CAD code...");
+  try {
+    const res = await apiPost("/api/cad/generate", { session_id: state.sessionId });
+    state.cadCode = res.cadquery_code;
+    addMessage("assistant", `Final design summary: ${res.design_summary}\nSTEP export is supported from the provided CadQuery code.`);
+    await refreshSession();
+  } finally {
+    setOperationLoading(false);
+  }
 }
 
 function downloadCadCode() {
@@ -435,26 +402,6 @@ function downloadCadCode() {
 async function indexAssetMetadata() {
   const res = await apiPost("/api/assets/index", { force_reindex: false });
   addMessage("system", `Indexed ${res.indexed_count} assets out of ${res.total_assets}.`);
-  await refreshSession();
-}
-
-async function saveProgress() {
-  const label = window.prompt("Checkpoint label", `STEP ${state.session?.step || 1} checkpoint`) || "";
-  const res = await apiPost("/api/session/save-progress", {
-    session_id: state.sessionId,
-    label: label.trim() || null,
-  });
-  addMessage("system", `Progress saved (checkpoint #${res.checkpoint_id}) at ${res.saved_at}.`);
-  await refreshProgressBoard();
-}
-
-async function switchSession(sessionId) {
-  state.sessionId = sessionId;
-  localStorage.setItem("packDesignSession", sessionId);
-  const nextKeyStorageId = `straiveUserApiKey:${sessionId}`;
-  state.apiKey = localStorage.getItem(nextKeyStorageId) || "";
-  el.apiKeyInput.value = state.apiKey;
-  addMessage("system", `Switched to session ${sessionId}.`);
   await refreshSession();
 }
 
@@ -478,14 +425,6 @@ el.generate2dBtn.addEventListener("click", async () => {
   }
 });
 
-el.iterateBtn.addEventListener("click", async () => {
-  try {
-    await runManualEdit();
-  } catch (err) {
-    addMessage("system", err.message);
-  }
-});
-
 el.applyManualBtn.addEventListener("click", async () => {
   try {
     await runManualEdit();
@@ -497,14 +436,6 @@ el.applyManualBtn.addEventListener("click", async () => {
 el.lockBtn.addEventListener("click", async () => {
   try {
     await lockDesign();
-  } catch (err) {
-    addMessage("system", err.message);
-  }
-});
-
-el.saveProgressBtn.addEventListener("click", async () => {
-  try {
-    await saveProgress();
   } catch (err) {
     addMessage("system", err.message);
   }
@@ -526,21 +457,12 @@ el.tab2.addEventListener("click", () => {
 el.tab3.addEventListener("click", () => {
   if (!el.tab3.disabled) setActiveScreen(3);
 });
-el.tab4.addEventListener("click", async () => {
-  setActiveScreen(4);
-  try {
-    await refreshProgressBoard();
-  } catch (err) {
-    addMessage("system", err.message);
-  }
-});
 
 (async function init() {
   el.apiKeyInput.value = state.apiKey;
   addMessage("system", "Session initialized. Start with packaging requirements.");
   try {
     await refreshSession();
-    await refreshProgressBoard();
   } catch (err) {
     addMessage("system", "Unable to restore previous session state.");
   }
