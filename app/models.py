@@ -43,7 +43,6 @@ class SessionState(BaseModel):
     approved_image_local_path: str | None = None
     lock_question_asked: bool = False
     lock_confirmed: bool = False
-    cadquery_code: str | None = None
     design_summary: str | None = None
     preview_3d_file: str | None = None
     history: list[dict[str, str]] = Field(default_factory=list)
@@ -80,15 +79,6 @@ class ImageResponse(BaseModel):
     image_id: str
     image_url_or_base64: str
     version: int
-
-
-class CadGenerateRequest(BaseModel):
-    session_id: str = Field(min_length=1, max_length=120)
-
-
-class CadGenerateResponse(BaseModel):
-    cadquery_code: str
-    design_summary: str
 
 
 class SessionResponse(BaseModel):

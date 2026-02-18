@@ -1,11 +1,11 @@
 # AI-Powered Intelligent Pack Design
 
-Production-oriented FastAPI + vanilla JS app that enforces a strict packaging-engineering workflow from concept to CAD code.
+Production-oriented FastAPI + vanilla JS app that enforces a strict packaging-engineering workflow from concept to approved 3D preview.
 
 ## Features
 - Strict 7-step state-machine workflow (never jumps ahead).
 - Backend-only integration with Straive LLM Foundry endpoints.
-- Chat + image generation/edit + CAD code generation APIs.
+- Chat + image generation/edit + TripoSR 3D preview APIs.
 - Asset baseline search from local `assets/` images using AI-generated metadata.
 - Session persistence in SQLite.
 - Request validation, rate limiting, redacted logging, CORS.
@@ -13,13 +13,13 @@ Production-oriented FastAPI + vanilla JS app that enforces a strict packaging-en
 - 3-screen production flow:
   - Requirements + Baseline
   - Edit Studio (recommended edits + manual edits)
-  - Approval + 3D status + CAD download
+  - Approval + 3D status + viewer
 
 ## Tech
 - Backend: FastAPI
 - Frontend: HTML/CSS/JS
 - AI Gateway: Straive LLM Foundry
-- CAD: CadQuery code generation (Python code output only)
+- 3D conversion: TripoSR (approved 2D image -> 3D preview file)
 
 ## Environment Variables
 Set these before running:
@@ -30,6 +30,8 @@ Set these before running:
 - `APP_DB_PATH` (optional, default `app.db`)
 - `ASSETS_DIR` (optional, default `assets`)
 - `AUTO_INDEX_ASSETS` (optional, default `true`; auto-indexes only new asset images during Step 3 baseline decision)
+- `TRIPOSR_COMMAND` (required for 3D generation; example: `python run.py --input {input} --output-dir {output_dir}`)
+- `TRIPOSR_OUTPUT_DIR` (optional, default `preview_3d`)
 - `LOG_LEVEL` (optional, default `INFO`)
 
 ## Per-User API Key Option
@@ -69,9 +71,6 @@ Put reusable reference images in:
   - Input: `{ session_id }`
   - Output: `{ message, preview_file }`
   - Action: generates 3D preview from the approved version image using TripoSR
-- `POST /api/cad/generate`
-  - Input: `{ session_id }`
-  - Output: `{ cadquery_code, design_summary }`
 - `GET /api/session/{session_id}`
   - Output: full session state
 - `POST /api/brief/upload` (multipart form-data)
@@ -81,7 +80,7 @@ Put reusable reference images in:
 - `POST /api/session/clear`
   - Input: `{ session_id }`
   - Output: `{ message }`
-  - Action: clears chat/spec/baseline/images/CAD for the session
+  - Action: clears chat/spec/baseline/images/approvals/3D preview state for the session
 - `GET /api/recommendations/{session_id}`
   - Output: `{ count, recommendations }`
   - Action: returns suggested visual refinements for Edit Studio
@@ -98,16 +97,9 @@ Put reusable reference images in:
 2. Normalize spec internally.
 3. Baseline decision statement.
 4. 2D visual iteration only.
-5. Mandatory lock question: `Do you want to lock this design and generate the 3D CAD (STEP) file?`
-6. Generate CadQuery code after lock confirmation only.
-7. Return summary + code + STEP export confirmation.
-
-## CAD Support
-Implemented parametric generators:
-1. Cosmetic Jar + Screw Cap
-2. Bottle + Flip-Top Cap (simplified)
-
-CAD generation is blocked unless required dimensions are present.
+5. Approve one version from Edit Studio.
+6. Generate 3D preview via TripoSR from the approved version image.
+7. View/open the generated 3D file.
 
 ## Example Session Walkthrough
 1. User: "Need a cosmetic jar, 50 ml, PP, screw cap, matte premium look"
@@ -116,9 +108,9 @@ CAD generation is blocked unless required dimensions are present.
    - You can alternatively upload a marketing brief PDF to auto-fill spec fields before chat.
 3. User clicks `Generate 2D Concept`.
 4. User iterates: "cap taller, matte texture" and clicks `Run Edit`.
-5. User says final/ready; assistant asks lock question.
-6. User confirms lock.
-7. App auto-triggers CAD generation; returns summary + CadQuery code and enables download.
+5. User approves a specific version in Version History.
+6. User goes to Approve & 3D and clicks `Generate 3D Preview (TripoSR)`.
+7. User opens the generated preview file (and GLB renders inline in 3D viewer when available).
 
 ## Notes
 - Frontend never calls Straive directly.

@@ -3,7 +3,6 @@ const state = {
   apiKey: "",
   latestImageId: null,
   latestImageData: null,
-  cadCode: null,
   session: null,
   activeScreen: 1,
 };
@@ -49,8 +48,10 @@ const el = {
   open3dPreviewLink: document.getElementById("open3dPreviewLink"),
   preview3dProgress: document.getElementById("preview3dProgress"),
   preview3dProgressText: document.getElementById("preview3dProgressText"),
+  approvedImagePreview: document.getElementById("approvedImagePreview"),
   approvalStatus: document.getElementById("approvalStatus"),
   threeDText: document.getElementById("threeDText"),
+  modelViewer: document.getElementById("modelViewer"),
   indexAssetsBtn: document.getElementById("indexAssetsBtn"),
   uploadBriefBtn: document.getElementById("uploadBriefBtn"),
   briefFileInput: document.getElementById("briefFileInput"),
@@ -92,6 +93,35 @@ function applyActionAvailability() {
   el.applyManualBtn.disabled = false;
   el.applyManualBtn.classList.toggle("pseudo-disabled", !canRunEditNow());
   el.generate3dPreviewBtn.disabled = !canGenerate3D;
+}
+
+function renderApprovedImage(sessionState) {
+  const approvedVersion = sessionState.approved_image_version;
+  if (!approvedVersion || !Array.isArray(sessionState.images)) {
+    el.approvedImagePreview.hidden = true;
+    return;
+  }
+  const match = sessionState.images.find((i) => i.version === approvedVersion);
+  if (!match) {
+    el.approvedImagePreview.hidden = true;
+    return;
+  }
+  el.approvedImagePreview.src = normalizeImageSource(match.image_url_or_base64);
+  el.approvedImagePreview.hidden = false;
+}
+
+function render3DViewer(previewFile) {
+  if (!previewFile) {
+    el.modelViewer.style.display = "none";
+    el.modelViewer.removeAttribute("src");
+    return;
+  }
+  if (previewFile.toLowerCase().endsWith(".glb")) {
+    el.modelViewer.src = previewFile;
+    el.modelViewer.style.display = "block";
+    return;
+  }
+  el.modelViewer.style.display = "none";
 }
 
 function addMessage(role, content) {
@@ -354,6 +384,7 @@ function updateFromSession(s) {
   } else {
     el.approvalStatus.textContent = "No version approved yet.";
   }
+  renderApprovedImage(s);
 
   el.threeDText.textContent = s.preview_3d_file
     ? `3D preview is ready from approved version v${s.approved_image_version || "-"}.`
@@ -362,6 +393,7 @@ function updateFromSession(s) {
   if (s.preview_3d_file) {
     el.open3dPreviewLink.href = s.preview_3d_file;
   }
+  render3DViewer(s.preview_3d_file);
 
   const allowed = computeAllowedScreen(s.step, hasBaselineMatch);
   el.tab2.disabled = allowed < 2;
@@ -457,7 +489,6 @@ async function generate2D() {
       state.session.step = 4;
       state.session.lock_confirmed = false;
       state.session.lock_question_asked = false;
-      state.session.cadquery_code = null;
       state.session.design_summary = null;
       state.session.preview_3d_file = null;
       state.session.approved_image_id = null;
@@ -551,7 +582,6 @@ async function clearSessionState() {
   el.manualEdit.value = "";
   state.latestImageId = null;
   state.latestImageData = null;
-  state.cadCode = null;
   addMessage("system", "Session cleared. Start with packaging requirements.");
   await refreshSession();
   setActiveScreen(1);

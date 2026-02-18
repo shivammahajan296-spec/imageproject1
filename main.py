@@ -19,7 +19,6 @@ from fastapi.staticfiles import StaticFiles
 from pypdf import PdfReader
 
 from app.asset_search import AssetCatalog
-from app.cad import CadGenerationError, generate_cadquery_code
 from app.config import load_settings
 from app.models import (
     AssetCatalogResponse,
@@ -28,8 +27,6 @@ from app.models import (
     BaselineAdoptRequest,
     BaselineSkipRequest,
     BaselineSkipResponse,
-    CadGenerateRequest,
-    CadGenerateResponse,
     ChatRequest,
     ChatResponse,
     EditRecommendationsResponse,
@@ -81,7 +78,7 @@ limiter = SimpleRateLimiter(max_requests=120, window_seconds=60)
 STRICT_MESSAGES = {
     "Searching for a similar baseline design…",
     "No close baseline found. Creating a new concept.",
-    "Do you want to lock this design and generate the 3D CAD (STEP) file?",
+    "Please approve a version from Version History, then generate the 3D preview.",
 }
 BASELINE_SEARCH_MSG = "Searching for a similar baseline design…"
 BASELINE_NEW_MSG = "No close baseline found. Creating a new concept."
@@ -293,7 +290,7 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
         can_generate_image=flags["can_generate_image"],
         can_iterate_image=flags["can_iterate_image"],
         can_lock=flags["can_lock"],
-        can_generate_cad=flags["can_generate_cad"],
+        can_generate_cad=False,
     )
 
 
@@ -418,7 +415,6 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
     state.step = 4
     state.lock_question_asked = False
     state.lock_confirmed = False
-    state.cadquery_code = None
     state.design_summary = None
     state.approved_image_id = None
     state.approved_image_version = None
@@ -541,9 +537,9 @@ async def approve_version(payload: VersionApproveRequest, request: Request) -> V
     state.approved_image_id = target.image_id
     state.approved_image_version = target.version
     state.approved_image_local_path = target.local_image_path
-    # Approve screen entry point; this is independent from CAD lock workflow.
-    if state.step < 5:
-        state.step = 5
+    # Approve screen entry point for TripoSR 2D -> 3D conversion.
+    if state.step < 6:
+        state.step = 6
     store.save(state)
     return VersionApproveResponse(
         message=f"Version v{target.version} approved for 3D preview conversion.",
@@ -567,6 +563,8 @@ async def generate_preview_3d(payload: Preview3DGenerateRequest, request: Reques
     rel_str = str(rel).replace("\\", "/")
     preview_file = f"/preview-3d/{rel_str}"
     state.preview_3d_file = preview_file
+    if state.step < 7:
+        state.step = 7
     store.save(state)
     return Preview3DGenerateResponse(
         message=f"3D preview generated from approved version v{state.approved_image_version}.",
@@ -589,7 +587,7 @@ async def skip_baseline(payload: BaselineSkipRequest, request: Request) -> Basel
 async def clear_session(payload: SessionClearRequest, request: Request) -> SessionClearResponse:
     limiter.check(request, "session-clear")
     reset_state = store.get_or_create(payload.session_id)
-    # Reset workflow conversation/spec/images/CAD while keeping the same session id for continuity.
+    # Reset workflow conversation/spec/images/3D preview while keeping session id continuity.
     reset_state.step = 1
     reset_state.spec = reset_state.spec.__class__()
     reset_state.missing_fields = []
@@ -604,33 +602,11 @@ async def clear_session(payload: SessionClearRequest, request: Request) -> Sessi
     reset_state.approved_image_local_path = None
     reset_state.lock_question_asked = False
     reset_state.lock_confirmed = False
-    reset_state.cadquery_code = None
     reset_state.design_summary = None
     reset_state.preview_3d_file = None
     reset_state.history = []
     store.save(reset_state)
     return SessionClearResponse(message="Session state cleared.")
-
-
-@app.post("/api/cad/generate", response_model=CadGenerateResponse)
-async def cad_generate(payload: CadGenerateRequest, request: Request) -> CadGenerateResponse:
-    limiter.check(request, "cad-generate")
-    state = store.get_or_create(payload.session_id)
-
-    if not state.lock_confirmed or state.step < 6:
-        raise HTTPException(status_code=400, detail="Design must be locked at STEP 5 before CAD generation.")
-
-    try:
-        code, summary = generate_cadquery_code(state.spec)
-    except CadGenerationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    state.cadquery_code = code
-    state.design_summary = summary
-    state.step = 7
-    store.save(state)
-
-    return CadGenerateResponse(cadquery_code=code, design_summary=summary)
 
 
 @app.get("/api/session/{session_id}", response_model=SessionResponse)

@@ -23,21 +23,13 @@ Only decision output for this step.
 
 STEP 4: 2D design iteration only. Use existing 2D visual as reference.
 For requested changes, refine consistently and do not restart design.
-Do not discuss 3D/CAD in this step.
+Do not discuss 3D generation in this step.
 
-STEP 5: Mandatory lock confirmation question before any CAD:
-"Do you want to lock this design and generate the 3D CAD (STEP) file?"
-Proceed only after clear user confirmation.
+STEP 5: Design approval confirmation. Ask user to approve a version from Edit Studio before 3D generation.
 
-STEP 6: CAD generation logic. Generate manufacturable CadQuery Python code only.
-Use sensible wall thickness guidance based on material/process,
-clean solids, draft angles for injection molded plastic, STEP-export compatibility.
-No STL/mesh generation.
+STEP 6: 3D generation readiness. Once a version is approved, guide the user to run TripoSR conversion.
 
-STEP 7: Final output must include
-1) summary of final design
-2) CadQuery Python code
-3) confirmation STEP can be exported.
+STEP 7: Final output. Confirm 3D preview is generated and available in the viewer/download link.
 
 Behavior:
 - Act as a senior packaging engineer, not a generic chatbot.
@@ -221,28 +213,30 @@ def handle_chat_turn(state: SessionState, user_message: str) -> tuple[str, dict[
         elif any(w in user_message.lower() for w in ["lock", "final", "ready", "freeze"]):
             state.step = 5
             state.lock_question_asked = True
-            assistant_message = "Do you want to lock this design and generate the 3D CAD (STEP) file?"
+            assistant_message = "Please approve a version from Version History, then generate the 3D preview."
         else:
             assistant_message = (
                 "I captured your iteration request. Use Iterate Design to refine the current 2D reference while preserving design consistency."
             )
 
     elif state.step == 5:
-        if not state.lock_question_asked:
-            state.lock_question_asked = True
-            assistant_message = "Do you want to lock this design and generate the 3D CAD (STEP) file?"
-        elif _is_confirm(user_message):
-            state.lock_confirmed = True
+        if state.approved_image_version:
             state.step = 6
-            assistant_message = "Design locked. I will now generate manufacturable CadQuery code."
+            assistant_message = "Approved version is set. 3D preview generation is enabled."
+        elif _is_confirm(user_message):
+            assistant_message = "Please click Approve on a version in Edit Studio first."
         else:
-            assistant_message = "Understood. We will keep iterating the 2D concept until you confirm lock."
+            assistant_message = "Understood. Continue iterating or approve a version from Edit Studio when ready."
 
     elif state.step == 6:
-        assistant_message = "CAD generation is enabled."
+        if state.preview_3d_file:
+            state.step = 7
+            assistant_message = "Final 3D preview is available in Approve & 3D."
+        else:
+            assistant_message = "3D preview generation is enabled."
 
     elif state.step == 7:
-        assistant_message = "Final output is available with design summary and CadQuery code."
+        assistant_message = "Final 3D preview is available."
 
     if assistant_message:
         state.history.append({"role": "assistant", "content": assistant_message})
@@ -250,8 +244,8 @@ def handle_chat_turn(state: SessionState, user_message: str) -> tuple[str, dict[
     flags = {
         "can_generate_image": state.step >= 3 and not state.images,
         "can_iterate_image": state.step >= 4 and bool(state.images) and not state.lock_confirmed,
-        "can_lock": state.step == 5 and state.lock_question_asked,
-        "can_generate_cad": state.step >= 6 and state.lock_confirmed and state.cadquery_code is None,
+        "can_lock": state.step == 5 and bool(state.images),
+        "can_generate_cad": False,
         "required_questions": state.required_questions,
     }
     return assistant_message, flags
