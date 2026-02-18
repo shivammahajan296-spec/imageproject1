@@ -66,6 +66,10 @@ Put reusable reference images in:
   - Output: `{ cadquery_code, design_summary }`
 - `GET /api/session/{session_id}`
   - Output: full session state
+- `POST /api/brief/upload` (multipart form-data)
+  - Input: `session_id`, `file` (PDF)
+  - Output: `{ message, step, spec_summary, required_questions }`
+  - Action: extracts design spec from marketing brief PDF without chat input
 - `POST /api/session/clear`
   - Input: `{ session_id }`
   - Output: `{ message }`
@@ -101,6 +105,7 @@ CAD generation is blocked unless required dimensions are present.
 1. User: "Need a cosmetic jar, 50 ml, PP, screw cap, matte premium look"
 2. Assistant reaches Step 3 baseline decision.
    - If asset metadata is indexed and a close match exists, app uses that as baseline reference.
+   - You can alternatively upload a marketing brief PDF to auto-fill spec fields before chat.
 3. User clicks `Generate 2D Concept`.
 4. User iterates: "cap taller, matte texture" and clicks `Run Edit`.
 5. User says final/ready; assistant asks lock question.

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import base64
+import io
 import logging
 import mimetypes
 import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pypdf import PdfReader
 
 from app.asset_search import AssetCatalog
 from app.cad import CadGenerationError, generate_cadquery_code
@@ -26,6 +28,7 @@ from app.models import (
     ChatRequest,
     ChatResponse,
     EditRecommendationsResponse,
+    BriefUploadResponse,
     ImageEditRequest,
     ImageGenerateRequest,
     ImageResponse,
@@ -38,7 +41,14 @@ from app.rate_limit import SimpleRateLimiter
 from app.recommendations import build_edit_recommendations
 from app.storage import SessionStore
 from app.straive_client import StraiveClient
-from app.workflow import WORKFLOW_SYSTEM_PROMPT, handle_chat_turn, spec_summary
+from app.workflow import (
+    WORKFLOW_SYSTEM_PROMPT,
+    handle_chat_turn,
+    missing_fields,
+    required_questions_for_missing,
+    spec_summary,
+    update_spec_from_message,
+)
 
 settings = load_settings()
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
@@ -80,6 +90,19 @@ def _normalize_image_ref_for_edit(value: str) -> str:
         return raw
     # Straive may return bare base64 for generated images; normalize to data URL for edit calls.
     return f"data:image/png;base64,{raw}"
+
+
+def _extract_pdf_text(pdf_bytes: bytes) -> str:
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    chunks: list[str] = []
+    for page in reader.pages:
+        try:
+            txt = page.extract_text() or ""
+        except Exception:
+            txt = ""
+        if txt.strip():
+            chunks.append(txt.strip())
+    return "\n\n".join(chunks).strip()
 
 
 @app.get("/health")
@@ -151,6 +174,75 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
         can_iterate_image=flags["can_iterate_image"],
         can_lock=flags["can_lock"],
         can_generate_cad=flags["can_generate_cad"],
+    )
+
+
+@app.post("/api/brief/upload", response_model=BriefUploadResponse)
+async def upload_marketing_brief(
+    request: Request,
+    session_id: str = Form(...),
+    file: UploadFile = File(...),
+) -> BriefUploadResponse:
+    limiter.check(request, "brief-upload")
+    req_api_key = _request_api_key(request)
+
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported for marketing brief upload.")
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Uploaded PDF is empty.")
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="PDF is too large. Maximum supported size is 12 MB.")
+
+    text = _extract_pdf_text(raw)
+    if not text:
+        raise HTTPException(status_code=400, detail="Could not extract readable text from PDF.")
+
+    state = store.get_or_create(session_id)
+    update_spec_from_message(state.spec, text)
+
+    try:
+        extracted = await straive.extract_design_spec_from_brief(text, api_key_override=req_api_key)
+    except Exception as exc:
+        logger.warning("Brief AI extraction failed; using deterministic parse only. error=%s", exc)
+        extracted = {}
+
+    for field in ["product_type", "size_or_volume", "intended_material", "closure_type", "design_style"]:
+        value = extracted.get(field)
+        if isinstance(value, str) and value.strip():
+            setattr(state.spec, field, value.strip().lower())
+
+    dims = extracted.get("dimensions", {})
+    if isinstance(dims, dict):
+        for k, v in dims.items():
+            try:
+                state.spec.dimensions[str(k)] = float(v)
+            except (TypeError, ValueError):
+                continue
+
+    state.missing_fields = missing_fields(state.spec)
+    state.required_questions = required_questions_for_missing(state.missing_fields)
+    state.baseline_decision = None
+    state.baseline_decision_done = False
+    state.baseline_matches = []
+    state.baseline_asset = None
+    state.history.append({"role": "system", "content": f"Marketing brief uploaded: {file.filename}"})
+
+    if state.missing_fields:
+        state.step = 1
+        message = "Marketing brief processed. Some mandatory fields are still missing."
+    else:
+        state.step = 3
+        message = "Marketing brief processed. Design spec extracted and ready for baseline search."
+
+    store.save(state)
+    return BriefUploadResponse(
+        message=message,
+        step=state.step,
+        spec_summary=spec_summary(state.spec),
+        required_questions=state.required_questions,
     )
 
 

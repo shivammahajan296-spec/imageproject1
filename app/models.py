@@ -142,3 +142,10 @@ class AssetCatalogItem(BaseModel):
 class AssetCatalogResponse(BaseModel):
     total: int
     items: list[AssetCatalogItem] = Field(default_factory=list)
+
+
+class BriefUploadResponse(BaseModel):
+    message: str
+    step: int
+    spec_summary: str
+    required_questions: list[str] = Field(default_factory=list)

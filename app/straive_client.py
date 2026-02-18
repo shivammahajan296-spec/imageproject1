@@ -186,6 +186,41 @@ class StraiveClient:
             parsed = self._parse_json_object(content)
             return self._normalize_asset_metadata(parsed, image_path)
 
+    async def extract_design_spec_from_brief(
+        self, brief_text: str, api_key_override: str | None = None
+    ) -> dict[str, Any]:
+        if not (api_key_override or self.settings.straive_api_key):
+            return {}
+
+        trimmed = brief_text[:24000]
+        system_prompt = (
+            "Extract packaging design requirements from a marketing brief. "
+            "Return strict JSON only with keys: "
+            "product_type, size_or_volume, intended_material, closure_type, design_style, dimensions. "
+            "Use null for unknowns. dimensions must be an object of numeric mm values if present."
+        )
+        payload = {
+            "model": self.settings.model_name,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": trimmed},
+            ],
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+        }
+        logger.info("Straive brief extraction request: %s", self._redact(payload))
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                self.settings.chat_url,
+                headers=self._headers(api_key_override=api_key_override),
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            logger.info("Straive brief extraction response: %s", self._redact(data))
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+            return self._parse_json_object(content)
+
     def _fallback_image(self, label: str) -> dict[str, str]:
         svg = f"""<svg xmlns='http://www.w3.org/2000/svg' width='1024' height='1024'>
 <rect width='100%' height='100%' fill='white'/>

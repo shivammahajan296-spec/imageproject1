@@ -16,9 +16,13 @@ const el = {
   tab2: document.getElementById("tab2"),
   tab3: document.getElementById("tab3"),
   tab4: document.getElementById("tab4"),
-  apiKeyInput: document.getElementById("apiKeyInput"),
-  saveKeyBtn: document.getElementById("saveKeyBtn"),
-  clearKeyBtn: document.getElementById("clearKeyBtn"),
+  openKeyModalBtn: document.getElementById("openKeyModalBtn"),
+  keyStateBadge: document.getElementById("keyStateBadge"),
+  keyModal: document.getElementById("keyModal"),
+  apiKeyPopupInput: document.getElementById("apiKeyPopupInput"),
+  saveKeyPopupBtn: document.getElementById("saveKeyPopupBtn"),
+  clearKeyPopupBtn: document.getElementById("clearKeyPopupBtn"),
+  closeKeyModalBtn: document.getElementById("closeKeyModalBtn"),
   screen1: document.getElementById("screen1"),
   screen2: document.getElementById("screen2"),
   screen3: document.getElementById("screen3"),
@@ -46,6 +50,8 @@ const el = {
   approvalStatus: document.getElementById("approvalStatus"),
   threeDText: document.getElementById("threeDText"),
   indexAssetsBtn: document.getElementById("indexAssetsBtn"),
+  uploadBriefBtn: document.getElementById("uploadBriefBtn"),
+  briefFileInput: document.getElementById("briefFileInput"),
   clearSessionBtn: document.getElementById("clearSessionBtn"),
   mainPreview: document.getElementById("mainPreview"),
   previewPlaceholder: document.getElementById("previewPlaceholder"),
@@ -62,6 +68,10 @@ function addMessage(role, content) {
   div.textContent = `${role.toUpperCase()}: ${content}`;
   el.messages.appendChild(div);
   el.messages.scrollTop = el.messages.scrollHeight;
+}
+
+function renderKeyBadge() {
+  el.keyStateBadge.textContent = state.apiKey ? "Key: Set" : "Key: Not Set";
 }
 
 function normalizeImageSource(value) {
@@ -220,6 +230,19 @@ async function apiPost(url, body) {
     method: "POST",
     headers,
     body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Request failed");
+  return data;
+}
+
+async function apiPostForm(url, formData) {
+  const headers = {};
+  if (state.apiKey) headers["X-Straive-Api-Key"] = state.apiKey;
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: formData,
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || "Request failed");
@@ -458,6 +481,30 @@ async function clearSessionState() {
   setActiveScreen(1);
 }
 
+async function uploadMarketingBrief(file) {
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith(".pdf")) {
+    addMessage("system", "Please select a PDF file.");
+    return;
+  }
+  setOperationLoading(true, "Extracting design spec from marketing brief...");
+  addMessage("system", `Uploading marketing brief: ${file.name}`);
+  try {
+    const formData = new FormData();
+    formData.append("session_id", state.sessionId);
+    formData.append("file", file);
+    const res = await apiPostForm("/api/brief/upload", formData);
+    addMessage("assistant", `${res.message}\n${res.spec_summary}`);
+    if (res.required_questions && res.required_questions.length) {
+      addMessage("system", `Missing info: ${res.required_questions.join(" ")}`);
+    }
+    await refreshSession();
+  } finally {
+    setOperationLoading(false);
+    el.briefFileInput.value = "";
+  }
+}
+
 el.chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const message = el.chatInput.value.trim();
@@ -511,6 +558,19 @@ el.clearSessionBtn.addEventListener("click", async () => {
   }
 });
 
+el.uploadBriefBtn.addEventListener("click", () => {
+  el.briefFileInput.click();
+});
+
+el.briefFileInput.addEventListener("change", async (e) => {
+  const file = e.target.files && e.target.files[0];
+  try {
+    await uploadMarketingBrief(file);
+  } catch (err) {
+    addMessage("system", err.message);
+  }
+});
+
 el.tab1.addEventListener("click", () => setActiveScreen(1));
 el.tab2.addEventListener("click", () => {
   if (!el.tab2.disabled) setActiveScreen(2);
@@ -547,7 +607,8 @@ el.refreshCatalogBtn.addEventListener("click", async () => {
 });
 
 (async function init() {
-  el.apiKeyInput.value = state.apiKey;
+  el.apiKeyPopupInput.value = state.apiKey;
+  renderKeyBadge();
   addMessage("system", "Session initialized. Start with packaging requirements.");
   try {
     await refreshSession();
@@ -557,19 +618,40 @@ el.refreshCatalogBtn.addEventListener("click", async () => {
   }
 })();
 
-el.saveKeyBtn.addEventListener("click", async () => {
-  state.apiKey = el.apiKeyInput.value.trim();
+el.openKeyModalBtn.addEventListener("click", () => {
+  el.apiKeyPopupInput.value = state.apiKey;
+  el.keyModal.hidden = false;
+});
+
+el.closeKeyModalBtn.addEventListener("click", () => {
+  el.keyModal.hidden = true;
+});
+
+el.keyModal.addEventListener("click", (e) => {
+  if (e.target === el.keyModal) {
+    el.keyModal.hidden = true;
+  }
+});
+
+el.saveKeyPopupBtn.addEventListener("click", async () => {
+  state.apiKey = el.apiKeyPopupInput.value.trim();
   const scopedKeyStorageId = `straiveUserApiKey:${state.sessionId}`;
   if (state.apiKey) {
     localStorage.setItem(scopedKeyStorageId, state.apiKey);
+  } else {
+    localStorage.removeItem(scopedKeyStorageId);
   }
+  renderKeyBadge();
+  el.keyModal.hidden = true;
   addMessage("system", state.apiKey ? "User API key saved for this browser." : "No key entered.");
 });
 
-el.clearKeyBtn.addEventListener("click", async () => {
+el.clearKeyPopupBtn.addEventListener("click", async () => {
   state.apiKey = "";
   const scopedKeyStorageId = `straiveUserApiKey:${state.sessionId}`;
   localStorage.removeItem(scopedKeyStorageId);
-  el.apiKeyInput.value = "";
+  el.apiKeyPopupInput.value = "";
+  renderKeyBadge();
+  el.keyModal.hidden = true;
   addMessage("system", "User API key cleared.");
 });

@@ -23,13 +23,29 @@ body {
 }
 .topbar h1 { margin: 0; font-size: 1.1rem; }
 .top-actions { display: flex; align-items: center; gap: 10px; }
-.key-box { display: flex; align-items: center; gap: 6px; }
-.key-box input {
-  width: 260px;
+.icon-btn {
+  width: 34px;
+  height: 34px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 7px 9px;
-  font-size: 0.85rem;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: #555;
+}
+.icon-btn:hover { border-color: #ffd3a6; background: #fff9f3; }
+.key-state {
+  font-size: 0.82rem;
+  color: #5c5c5c;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #fff;
 }
 .step-badge {
   background: #fff3e8; color: #8a4a00; border: 1px solid #ffd3a6; border-radius: 999px;
@@ -156,6 +172,33 @@ body {
   border: 1px dashed #d4d4d4; border-radius: 10px; min-height: 220px; display: grid; place-items: center;
   background: radial-gradient(circle at 30% 30%, #ffffff, #f3f3f3);
   color: var(--text-muted); padding: 12px; text-align: center;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+}
+.modal-card {
+  width: min(92vw, 420px);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+.modal-card h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+.modal-card input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 0.92rem;
 }
 
 .list-grid { display: grid; gap: 8px; }

@@ -11,11 +11,12 @@
       <header class="topbar">
         <h1>AI-Powered Intelligent Pack Design</h1>
         <div class="top-actions">
-          <div class="key-box">
-            <input id="apiKeyInput" type="password" placeholder="Enter Straive API key" />
-            <button id="saveKeyBtn" class="btn tiny" type="button">Save Key</button>
-            <button id="clearKeyBtn" class="btn tiny secondary" type="button">Clear</button>
-          </div>
+          <button id="openKeyModalBtn" class="icon-btn" type="button" title="Manage API Key" aria-label="Manage API Key">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M14 4a6 6 0 1 0 4.24 10.24L22 18v2h-2v-2h-2v-2h-1.17A6 6 0 0 0 14 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"></path>
+            </svg>
+          </button>
+          <span id="keyStateBadge" class="key-state">Key: Not Set</span>
           <div id="stepBadge" class="step-badge">Workflow Step: 1</div>
         </div>
       </header>
@@ -39,6 +40,8 @@
               <div id="missingInfo" class="missing-info"></div>
               <div class="actions-row">
                 <button id="indexAssetsBtn" class="btn secondary">Index Asset Metadata</button>
+                <button id="uploadBriefBtn" class="btn secondary">Add Marketing Brief (PDF)</button>
+                <input id="briefFileInput" type="file" accept="application/pdf" hidden />
                 <button id="clearSessionBtn" class="btn secondary">Clear Session</button>
               </div>
             </div>
@@ -123,6 +126,18 @@
         </section>
 
       </main>
+    </div>
+
+    <div id="keyModal" class="modal" hidden>
+      <div class="modal-card">
+        <h3>API Key</h3>
+        <input id="apiKeyPopupInput" type="password" placeholder="Enter Straive API key" />
+        <div class="actions-row">
+          <button id="saveKeyPopupBtn" class="btn tiny" type="button">Save Key</button>
+          <button id="clearKeyPopupBtn" class="btn tiny secondary" type="button">Clear</button>
+          <button id="closeKeyModalBtn" class="btn tiny secondary" type="button">Close</button>
+        </div>
+      </div>
     </div>
 
     <script src="/app.js"></script>
