@@ -34,6 +34,7 @@ class SessionState(BaseModel):
     required_questions: list[str] = Field(default_factory=list)
     baseline_decision: str | None = None
     baseline_decision_done: bool = False
+    baseline_matches: list[dict[str, Any]] = Field(default_factory=list)
     baseline_asset: dict[str, Any] | None = None
     images: list[ImageVersion] = Field(default_factory=list)
     lock_question_asked: bool = False
@@ -134,3 +135,8 @@ class ProgressResponse(BaseModel):
     in_progress: list[ProgressSessionItem] = Field(default_factory=list)
     approved_designs: list[ProgressSessionItem] = Field(default_factory=list)
     checkpoints: list[ProgressCheckpointItem] = Field(default_factory=list)
+
+
+class BaselineAdoptRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+    asset_rel_path: str = Field(min_length=1, max_length=500)

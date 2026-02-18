@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 import logging
+import mimetypes
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -14,6 +17,7 @@ from app.config import load_settings
 from app.models import (
     AssetIndexRequest,
     AssetIndexResponse,
+    BaselineAdoptRequest,
     CadGenerateRequest,
     CadGenerateResponse,
     ChatRequest,
@@ -66,6 +70,16 @@ def _request_api_key(request: Request) -> str | None:
     return value or None
 
 
+def _normalize_image_ref_for_edit(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return raw
+    if raw.startswith("http://") or raw.startswith("https://") or raw.startswith("data:image"):
+        return raw
+    # Straive may return bare base64 for generated images; normalize to data URL for edit calls.
+    return f"data:image/png;base64,{raw}"
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -95,9 +109,14 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
                     )
             except Exception as exc:
                 logger.warning("Auto asset indexing failed; continuing with existing metadata. error=%s", exc)
-        match = asset_catalog.find_best_match(state.spec)
-        state.baseline_asset = match
-        assistant_message = BASELINE_SEARCH_MSG if match else BASELINE_NEW_MSG
+        matches = asset_catalog.find_matches(state.spec, min_score=2, limit=5)
+        state.baseline_matches = matches
+        if not any(
+            state.baseline_asset and state.baseline_asset.get("asset_rel_path") == m.get("asset_rel_path")
+            for m in matches
+        ):
+            state.baseline_asset = None
+        assistant_message = BASELINE_SEARCH_MSG if matches else BASELINE_NEW_MSG
         state.baseline_decision = assistant_message
         if state.history and state.history[-1].get("role") == "assistant":
             state.history[-1]["content"] = assistant_message
@@ -210,9 +229,10 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
     if state.lock_confirmed:
         raise HTTPException(status_code=400, detail="Design is locked. Iteration is not allowed.")
 
-    edited = await straive.image_edit(
-        payload.image_id, payload.instruction_prompt, api_key_override=req_api_key
-    )
+    # Always edit the latest session visual so iteration is continuous from the current reference.
+    latest_ref = state.images[-1].image_url_or_base64 if state.images else payload.image_id
+    latest_ref = _normalize_image_ref_for_edit(latest_ref)
+    edited = await straive.image_edit(latest_ref, payload.instruction_prompt, api_key_override=req_api_key)
     version = len(state.images) + 1
     image = ImageVersion(
         image_id=edited["image_id"] or str(uuid.uuid4()),
@@ -222,6 +242,40 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
     )
     state.images.append(image)
 
+    store.save(state)
+    return ImageResponse(
+        image_id=image.image_id,
+        image_url_or_base64=image.image_url_or_base64,
+        version=image.version,
+    )
+
+
+@app.post("/api/image/adopt-baseline", response_model=ImageResponse)
+async def adopt_baseline(payload: BaselineAdoptRequest, request: Request) -> ImageResponse:
+    limiter.check(request, "image-adopt-baseline")
+    state = store.get_or_create(payload.session_id)
+    match = next((m for m in state.baseline_matches if m.get("asset_rel_path") == payload.asset_rel_path), None)
+    if not match:
+        raise HTTPException(status_code=400, detail="Selected baseline match is not available for this session.")
+    state.baseline_asset = match
+
+    asset_path = Path(match["asset_path"])
+    if not asset_path.exists() or not asset_path.is_file():
+        raise HTTPException(status_code=404, detail="Baseline asset file not found.")
+
+    mime_type = mimetypes.guess_type(str(asset_path))[0] or "image/png"
+    b64 = base64.b64encode(asset_path.read_bytes()).decode("utf-8")
+    data_url = f"data:{mime_type};base64,{b64}"
+    version = len(state.images) + 1
+    image = ImageVersion(
+        image_id=f"baseline-{uuid.uuid4()}",
+        image_url_or_base64=data_url,
+        version=version,
+        prompt=f"Adopted baseline asset: {match.get('filename', asset_path.name)}",
+    )
+    state.images.append(image)
+    if state.step < 4:
+        state.step = 4
     store.save(state)
     return ImageResponse(
         image_id=image.image_id,

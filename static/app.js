@@ -29,6 +29,7 @@ const el = {
   specSummary: document.getElementById("specSummary"),
   missingInfo: document.getElementById("missingInfo"),
   baselineStatus: document.getElementById("baselineStatus"),
+  baselineCandidates: document.getElementById("baselineCandidates"),
   baselineMatch: document.getElementById("baselineMatch"),
   baselinePreview: document.getElementById("baselinePreview"),
   baselineSummary: document.getElementById("baselineSummary"),
@@ -103,13 +104,59 @@ function renderBaselineMatch(match) {
   el.baselineSummary.textContent = `${match.filename} | ${match.summary || "Matched baseline asset"} | score ${match.score}`;
 }
 
+function renderBaselineCandidates(matches, selectedRelPath) {
+  el.baselineCandidates.innerHTML = "";
+  if (!matches || !matches.length) {
+    const row = document.createElement("div");
+    row.className = "list-item";
+    row.textContent = "No baseline candidates found yet.";
+    el.baselineCandidates.appendChild(row);
+    return;
+  }
+
+  matches.forEach((m, idx) => {
+    const row = document.createElement("div");
+    row.className = "list-item";
+    const isSelected = selectedRelPath && selectedRelPath === m.asset_rel_path;
+    row.innerHTML = `
+      <strong>#${idx + 1} ${m.filename} ${isSelected ? "(Selected)" : ""}</strong>
+      <div class="list-meta">Score ${m.score} | ${m.summary || "Baseline candidate"}</div>
+      <div class="list-meta">Type ${m.product_type || "-"} | Material ${m.material || "-"} | Closure ${m.closure_type || "-"}</div>
+    `;
+    const actions = document.createElement("div");
+    actions.className = "inline-actions";
+    const selectBtn = document.createElement("button");
+    selectBtn.type = "button";
+    selectBtn.className = "btn tiny";
+    selectBtn.textContent = isSelected ? "Selected" : "Select & Continue";
+    selectBtn.disabled = Boolean(isSelected);
+    selectBtn.addEventListener("click", async () => {
+      try {
+        await apiPost("/api/image/adopt-baseline", {
+          session_id: state.sessionId,
+          asset_rel_path: m.asset_rel_path,
+        });
+        await refreshSession();
+        setActiveScreen(2);
+        addMessage("system", `Baseline selected: ${m.filename}. Continue in Edit Studio.`);
+      } catch (err) {
+        addMessage("system", err.message);
+      }
+    });
+    actions.appendChild(selectBtn);
+    row.appendChild(actions);
+    el.baselineCandidates.appendChild(row);
+  });
+}
+
 function setActiveScreen(screenNumber) {
   state.activeScreen = screenNumber;
   [el.tab1, el.tab2, el.tab3, el.tab4].forEach((tab, i) => tab.classList.toggle("active", i + 1 === screenNumber));
   [el.screen1, el.screen2, el.screen3, el.screen4].forEach((screen, i) => screen.classList.toggle("active", i + 1 === screenNumber));
 }
 
-function computeAllowedScreen(step) {
+function computeAllowedScreen(step, hasBaselineMatch = false) {
+  if (step === 3 && hasBaselineMatch) return 2;
   if (step <= 3) return 1;
   if (step <= 5) return 2;
   return 3;
@@ -216,7 +263,9 @@ function updateFromSession(s) {
 
   const baselineDecision = s.baseline_decision || "Baseline decision pending.";
   el.baselineStatus.textContent = baselineDecision;
+  renderBaselineCandidates(s.baseline_matches || [], s.baseline_asset?.asset_rel_path || null);
   renderBaselineMatch(s.baseline_asset);
+  const hasBaselineMatch = Boolean((s.baseline_matches || []).length);
 
   renderThumbs(s.images || []);
   if (s.images && s.images.length) {
@@ -250,7 +299,7 @@ function updateFromSession(s) {
     el.threeDText.textContent = "3D CAD preview is available after lock + CAD generation.";
   }
 
-  const allowed = computeAllowedScreen(s.step);
+  const allowed = computeAllowedScreen(s.step, hasBaselineMatch);
   el.tab2.disabled = allowed < 2;
   el.tab3.disabled = allowed < 3;
   const nextScreen = state.activeScreen === 4 ? 4 : Math.min(state.activeScreen, allowed);
@@ -303,8 +352,34 @@ async function sendChat(message) {
   }
 }
 
+function build2DPromptFromSession() {
+  const s = state.session || {};
+  const spec = s.spec || {};
+  const parts = [
+    "Industrial packaging concept render, clean white background, studio lighting, front 3/4 view",
+    `product type: ${spec.product_type || "not specified"}`,
+    `size/volume: ${spec.size_or_volume || "not specified"}`,
+    `material: ${spec.intended_material || "not specified"}`,
+    `closure: ${spec.closure_type || "not specified"}`,
+    `style: ${spec.design_style || "not specified"}`,
+  ];
+  if (spec.dimensions && Object.keys(spec.dimensions).length) {
+    parts.push(
+      "dimensions(mm): " +
+        Object.entries(spec.dimensions)
+          .map(([k, v]) => `${k}=${v}`)
+          .join(", "),
+    );
+  }
+  if (s.baseline_asset && s.baseline_asset.summary) {
+    parts.push(`reference baseline: ${s.baseline_asset.summary}`);
+  }
+  return parts.join("; ");
+}
+
 async function generate2D() {
-  const prompt = window.prompt("Enter 2D concept prompt", "Front 3/4 view product render on white background");
+  const defaultPrompt = build2DPromptFromSession();
+  const prompt = window.prompt("Enter 2D concept prompt", defaultPrompt);
   if (!prompt) return;
   const res = await apiPost("/api/image/generate", { session_id: state.sessionId, prompt });
   addMessage("system", `Generated concept image version v${res.version}.`);

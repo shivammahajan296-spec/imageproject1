@@ -118,36 +118,41 @@ class AssetCatalog:
             )
             conn.commit()
 
-    def find_best_match(self, spec: DesignSpec) -> dict[str, Any] | None:
+    def find_matches(self, spec: DesignSpec, min_score: int = 2, limit: int = 5) -> list[dict[str, Any]]:
         with self._conn() as conn:
             rows = conn.execute("SELECT * FROM asset_metadata").fetchall()
         if not rows:
-            return None
+            return []
 
-        best_row = None
-        best_score = 0
+        scored: list[tuple[int, sqlite3.Row]] = []
         for row in rows:
             score = self._score_row(spec, row)
-            if score > best_score:
-                best_score = score
-                best_row = row
+            if score >= min_score:
+                scored.append((score, row))
 
-        if not best_row or best_score < 2:
-            return None
+        scored.sort(key=lambda x: x[0], reverse=True)
+        out: list[dict[str, Any]] = []
+        for score, row in scored[:limit]:
+            out.append(
+                {
+                    "asset_path": row["asset_path"],
+                    "asset_rel_path": self._relative_asset_path(row["asset_path"]),
+                    "filename": row["filename"],
+                    "product_type": row["product_type"],
+                    "material": row["material"],
+                    "closure_type": row["closure_type"],
+                    "design_style": row["design_style"],
+                    "size_or_volume": row["size_or_volume"],
+                    "summary": row["summary"],
+                    "tags": row["tags"],
+                    "score": score,
+                }
+            )
+        return out
 
-        return {
-            "asset_path": best_row["asset_path"],
-            "asset_rel_path": self._relative_asset_path(best_row["asset_path"]),
-            "filename": best_row["filename"],
-            "product_type": best_row["product_type"],
-            "material": best_row["material"],
-            "closure_type": best_row["closure_type"],
-            "design_style": best_row["design_style"],
-            "size_or_volume": best_row["size_or_volume"],
-            "summary": best_row["summary"],
-            "tags": best_row["tags"],
-            "score": best_score,
-        }
+    def find_best_match(self, spec: DesignSpec) -> dict[str, Any] | None:
+        matches = self.find_matches(spec=spec, min_score=2, limit=1)
+        return matches[0] if matches else None
 
     def _relative_asset_path(self, raw_path: str) -> str:
         p = Path(raw_path).resolve()
