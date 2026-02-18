@@ -62,6 +62,19 @@ const el = {
 };
 let operationInFlight = false;
 
+function applyActionAvailability() {
+  const s = state.session;
+  if (!s) return;
+  const hasImages = Boolean(s.images && s.images.length);
+  const canGenerate2D = s.step >= 3 && !hasImages;
+  const canRunEdit = s.step >= 4 && hasImages && !s.lock_confirmed;
+  const canLock = s.step === 5 && s.lock_question_asked;
+
+  el.generate2dBtn.disabled = operationInFlight || !canGenerate2D;
+  el.applyManualBtn.disabled = operationInFlight || !canRunEdit;
+  el.lockBtn.disabled = operationInFlight || !canLock;
+}
+
 function addMessage(role, content) {
   const div = document.createElement("div");
   div.className = `msg ${role}`;
@@ -264,10 +277,7 @@ function setOperationLoading(isLoading, text = "Processing...") {
   if (isLoading) {
     el.opProgressText.textContent = text;
   }
-  const locked = Boolean(isLoading);
-  el.generate2dBtn.disabled = locked || el.generate2dBtn.disabled;
-  el.applyManualBtn.disabled = locked || el.applyManualBtn.disabled;
-  el.lockBtn.disabled = locked || el.lockBtn.disabled;
+  applyActionAvailability();
 }
 
 function updateFromSession(s) {
@@ -293,12 +303,7 @@ function updateFromSession(s) {
     renderMainImage("");
   }
 
-  el.generate2dBtn.disabled = !(s.step >= 3 && (!s.images || s.images.length === 0));
-  el.applyManualBtn.disabled = !(s.step >= 4 && s.images && s.images.length && !s.lock_confirmed);
-  el.lockBtn.disabled = !(s.step === 5 && s.lock_question_asked);
-  if (operationInFlight) {
-    setOperationLoading(true, el.opProgressText.textContent || "Processing...");
-  }
+  applyActionAvailability();
 
   if (s.lock_confirmed) {
     el.approvalStatus.textContent = "Design locked. CAD generation in progress or completed.";
