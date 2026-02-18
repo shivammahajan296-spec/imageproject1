@@ -117,9 +117,11 @@ function renderBaselineCandidates(matches, selectedRelPath) {
   matches.forEach((m, idx) => {
     const row = document.createElement("div");
     row.className = "list-item";
+    const previewSrc = `/asset-files/${encodeURIComponent(m.asset_rel_path).replace(/%2F/g, "/")}`;
     const isSelected = selectedRelPath && selectedRelPath === m.asset_rel_path;
     row.innerHTML = `
       <strong>#${idx + 1} ${m.filename} ${isSelected ? "(Selected)" : ""}</strong>
+      <img class="candidate-thumb" src="${previewSrc}" alt="${m.filename}" />
       <div class="list-meta">Score ${m.score} | ${m.summary || "Baseline candidate"}</div>
       <div class="list-meta">Type ${m.product_type || "-"} | Material ${m.material || "-"} | Closure ${m.closure_type || "-"}</div>
     `;

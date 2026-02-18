@@ -95,18 +95,22 @@ class StraiveClient:
         if not (api_key_override or self.settings.straive_api_key):
             return self._fallback_image(f"{image_ref}: {instruction_prompt}")
 
-        payload = {
+        image_bytes, mime_type, filename = await self._image_ref_to_bytes(image_ref)
+        data = {
             "model": "gpt-image-1",
-            "image": image_ref,
             "prompt": instruction_prompt,
             "size": "1024x1024",
         }
-        logger.info("Straive image edit request: %s", self._redact(payload))
-        async with httpx.AsyncClient(timeout=60) as client:
+        logger.info(
+            "Straive image edit request: %s",
+            self._redact({"model": "gpt-image-1", "prompt": instruction_prompt, "size": "1024x1024"}),
+        )
+        async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
                 self.settings.image_edit_url,
-                headers=self._headers(api_key_override=api_key_override),
-                json=payload,
+                headers={"Authorization": f"Bearer {api_key_override or self.settings.straive_api_key}"},
+                data=data,
+                files={"image": (filename, image_bytes, mime_type)},
             )
             resp.raise_for_status()
             data = resp.json()
@@ -116,6 +120,29 @@ class StraiveClient:
                 "image_id": item.get("id", "edited-image"),
                 "image_url_or_base64": item.get("url") or item.get("b64_json", ""),
             }
+
+    async def _image_ref_to_bytes(self, image_ref: str) -> tuple[bytes, str, str]:
+        raw = (image_ref or "").strip()
+        if not raw:
+            raise ValueError("Empty image reference provided for edit.")
+
+        if raw.startswith("data:image"):
+            header, b64_data = raw.split(",", 1)
+            mime_match = re.search(r"data:(image/[^;]+);base64", header)
+            mime_type = mime_match.group(1) if mime_match else "image/png"
+            ext = mimetypes.guess_extension(mime_type) or ".png"
+            return base64.b64decode(b64_data), mime_type, f"edit_input{ext}"
+
+        if raw.startswith("http://") or raw.startswith("https://"):
+            async with httpx.AsyncClient(timeout=45) as client:
+                resp = await client.get(raw)
+                resp.raise_for_status()
+                mime_type = resp.headers.get("content-type", "image/png").split(";")[0].strip() or "image/png"
+                ext = mimetypes.guess_extension(mime_type) or ".png"
+                return resp.content, mime_type, f"edit_input{ext}"
+
+        # Assume bare base64 image payload
+        return base64.b64decode(raw), "image/png", "edit_input.png"
 
     async def describe_packaging_asset(
         self, image_path: Path, api_key_override: str | None = None
