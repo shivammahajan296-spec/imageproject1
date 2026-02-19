@@ -357,21 +357,78 @@ function computeAllowedScreen(step, hasBaselineMatch = false) {
 function renderAssetCatalog(items) {
   function cleanValue(v) {
     if (v === null || v === undefined) return "";
+    if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean).join(", ");
+    if (typeof v === "object") return JSON.stringify(v);
     const t = String(v).trim();
     if (!t) return "";
     if (["none", "null", "unknown", "n/a", "na", "-"].includes(t.toLowerCase())) return "";
     return t;
   }
 
-  function pickFromItem(item, keys) {
-    const meta = item && typeof item.metadata_json === "object" ? item.metadata_json : {};
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function labelize(key) {
+    const overrides = {
+      product_type: "Product Type",
+      closure_type: "Closure Type",
+      design_style: "Design Style",
+      size_or_volume: "Size/Volume",
+      intended_material: "Material",
+      material_type: "Material",
+      meta_description: "Meta Description",
+      tag_list: "Tags",
+      keywords: "Tags",
+    };
+    if (overrides[key]) return overrides[key];
+    return key
+      .replaceAll("_", " ")
+      .split(" ")
+      .filter(Boolean)
+      .map((p) => p[0].toUpperCase() + p.slice(1))
+      .join(" ");
+  }
+
+  function firstNonEmpty(obj, keys) {
     for (const key of keys) {
-      const direct = cleanValue(item[key]);
-      if (direct) return direct;
-      const fromMeta = cleanValue(meta[key]);
-      if (fromMeta) return fromMeta;
+      const v = cleanValue(obj[key]);
+      if (v) return v;
     }
-    return "-";
+    return "";
+  }
+
+  function buildDisplayMetadata(item) {
+    const meta = item && typeof item.metadata_json === "object" ? { ...item.metadata_json } : {};
+    const out = {};
+    const canonical = {
+      product_type: ["product_type", "type", "packaging_type", "product"],
+      material: ["material", "intended_material", "material_type"],
+      closure_type: ["closure_type", "closure", "cap_type", "lid_type"],
+      design_style: ["design_style", "style", "visual_style"],
+      size_or_volume: ["size_or_volume", "size", "volume", "capacity"],
+      tags: ["tags", "keywords", "tag_list"],
+      summary: ["summary", "description", "meta_description"],
+    };
+
+    for (const [targetKey, aliases] of Object.entries(canonical)) {
+      const fromItem = firstNonEmpty(item, aliases);
+      const fromMeta = firstNonEmpty(meta, aliases);
+      const picked = fromItem || fromMeta;
+      if (picked) out[targetKey] = picked;
+    }
+
+    for (const [k, v] of Object.entries(meta)) {
+      const cleaned = cleanValue(v);
+      if (cleaned && !out[k]) out[k] = cleaned;
+    }
+
+    return out;
   }
 
   el.assetCatalogList.innerHTML = "";
@@ -387,21 +444,24 @@ function renderAssetCatalog(items) {
     const card = document.createElement("div");
     card.className = "list-item";
     const previewSrc = `/asset-files/${encodeURIComponent(item.asset_rel_path).replace(/%2F/g, "/")}`;
-    const typeVal = pickFromItem(item, ["product_type", "type", "packaging_type", "product"]);
-    const materialVal = pickFromItem(item, ["material", "intended_material", "material_type"]);
-    const closureVal = pickFromItem(item, ["closure_type", "closure", "cap_type", "lid_type"]);
-    const styleVal = pickFromItem(item, ["design_style", "style", "visual_style"]);
-    const sizeVal = pickFromItem(item, ["size_or_volume", "size", "volume", "capacity"]);
-    const tagsVal = pickFromItem(item, ["tags", "keywords", "tag_list"]);
-    const summaryVal = pickFromItem(item, ["summary", "description", "meta_description"]);
+    const displayMeta = buildDisplayMetadata(item);
+    const summaryVal = displayMeta.summary || "No summary";
+    const preferredOrder = ["product_type", "material", "closure_type", "design_style", "size_or_volume", "tags"];
+    const shownKeys = Object.keys(displayMeta).filter((k) => k !== "summary");
+    const orderedKeys = [
+      ...preferredOrder.filter((k) => shownKeys.includes(k)),
+      ...shownKeys.filter((k) => !preferredOrder.includes(k)).sort(),
+    ];
+    const metaLines = orderedKeys
+      .map((k) => `<div class="list-meta">${escapeHtml(labelize(k))}: ${escapeHtml(displayMeta[k])}</div>`)
+      .join("");
+
     card.innerHTML = `
       <strong>${idx + 1}</strong>
       <img class="candidate-thumb" src="${previewSrc}" alt="Asset preview" />
-      <div class="list-meta">${summaryVal}</div>
-      <div class="list-meta">Type: ${typeVal} | Material: ${materialVal} | Closure: ${closureVal}</div>
-      <div class="list-meta">Style: ${styleVal} | Size/Volume: ${sizeVal}</div>
-      <div class="list-meta">Tags: ${tagsVal}</div>
-      <div class="list-meta">Updated: ${item.updated_at}</div>
+      <div class="list-meta">${escapeHtml(summaryVal)}</div>
+      ${metaLines}
+      <div class="list-meta">Updated: ${escapeHtml(item.updated_at || "-")}</div>
     `;
     el.assetCatalogList.appendChild(card);
   });
