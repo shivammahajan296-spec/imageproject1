@@ -16,6 +16,49 @@ body {
   background: linear-gradient(180deg, #fff 0%, #f6f6f6 100%);
 }
 
+.ai-indicator {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 2500;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #f2e1d6;
+  backdrop-filter: blur(6px);
+}
+.ai-orb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #f37021;
+  box-shadow: 0 0 0 0 rgba(243, 112, 33, 0.4);
+  animation: aiPulse 1.9s ease-in-out infinite;
+}
+.ai-indicator-text {
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #4a4a4a;
+}
+@keyframes aiPulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(243, 112, 33, 0.4), 0 0 8px rgba(243, 112, 33, 0.25);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 8px rgba(243, 112, 33, 0.08), 0 0 16px rgba(243, 112, 33, 0.3);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(243, 112, 33, 0), 0 0 8px rgba(243, 112, 33, 0.2);
+  }
+}
+
 .app-shell { max-width: 1400px; margin: 0 auto; min-height: 100vh; padding: 16px; }
 .topbar {
   display: flex; justify-content: space-between; align-items: center;
