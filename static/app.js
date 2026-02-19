@@ -273,7 +273,9 @@ function renderBaselineMatch(match) {
   const typeVal = match.product_type || "-";
   const materialVal = match.material || "-";
   const closureVal = match.closure_type || "-";
-  el.baselineSummary.textContent = `${match.summary || "Matched baseline asset"} | Score: ${score} | Type: ${typeVal} | Material: ${materialVal} | Closure: ${closureVal}`;
+  const styleVal = match.design_style || "-";
+  const sizeVal = match.size_or_volume || "-";
+  el.baselineSummary.textContent = `Score: ${score} | Type: ${typeVal} | Material: ${materialVal} | Closure: ${closureVal} | Style: ${styleVal} | Size/Volume: ${sizeVal}`;
 }
 
 function renderBaselineCandidates(matches, selectedRelPath) {
@@ -302,12 +304,14 @@ function renderBaselineCandidates(matches, selectedRelPath) {
     const typeVal = m.product_type || "-";
     const materialVal = m.material || "-";
     const closureVal = m.closure_type || "-";
+    const styleVal = m.design_style || "-";
+    const sizeVal = m.size_or_volume || "-";
     row.innerHTML = `
       <strong>#${idx + 1}${isSelected ? " (Selected)" : ""}</strong>
       <img class="candidate-thumb" src="${previewSrc}" alt="Baseline candidate preview" />
       <div class="list-meta baseline-meta-score">Score: ${score}</div>
       <div class="list-meta baseline-meta-attrs">Type: ${typeVal} | Material: ${materialVal} | Closure: ${closureVal}</div>
-      <div class="list-meta">${m.summary || "Baseline candidate"}</div>
+      <div class="list-meta">Style: ${styleVal} | Size/Volume: ${sizeVal}</div>
     `;
     const actions = document.createElement("div");
     actions.className = "inline-actions";
@@ -356,22 +360,10 @@ function computeAllowedScreen(step, hasBaselineMatch = false) {
 
 function renderAssetCatalog(items) {
   function cleanValue(v) {
-    if (v === null || v === undefined) return "";
-    if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean).join(", ");
-    if (typeof v === "object") return JSON.stringify(v);
+    if (v === null || v === undefined) return "-";
     const t = String(v).trim();
-    if (!t) return "";
-    if (["none", "null", "unknown", "n/a", "na", "-"].includes(t.toLowerCase())) return "";
+    if (!t) return "-";
     return t;
-  }
-
-  function escapeHtml(value) {
-    return String(value)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
   }
 
   el.assetCatalogList.innerHTML = "";
@@ -387,21 +379,22 @@ function renderAssetCatalog(items) {
     const card = document.createElement("div");
     card.className = "list-item";
     const previewSrc = `/asset-files/${encodeURIComponent(item.asset_rel_path).replace(/%2F/g, "/")}`;
-    const rawMeta = item && typeof item.metadata_json === "object" ? item.metadata_json : {};
-    const entries = Object.entries(rawMeta).filter(([, val]) => cleanValue(val));
-    const summaryCandidate = entries.find(([k]) => k === "summary" || k === "description" || k === "meta_description");
-    const summaryVal = summaryCandidate ? cleanValue(summaryCandidate[1]) : "No summary";
-    const metaLines = entries
-      .filter(([k]) => !["summary", "description", "meta_description"].includes(k))
-      .map(([k, v]) => `<div class="list-meta">${escapeHtml(k)}: ${escapeHtml(cleanValue(v))}</div>`)
-      .join("");
+    const typeVal = cleanValue(item.product_type);
+    const materialVal = cleanValue(item.material);
+    const closureVal = cleanValue(item.closure_type);
+    const styleVal = cleanValue(item.design_style);
+    const sizeVal = cleanValue(item.size_or_volume);
+    const updatedVal = cleanValue(item.updated_at);
 
     card.innerHTML = `
       <strong>${idx + 1}</strong>
       <img class="candidate-thumb" src="${previewSrc}" alt="Asset preview" />
-      <div class="list-meta">${escapeHtml(summaryVal)}</div>
-      ${metaLines || '<div class="list-meta">No metadata extracted.</div>'}
-      <div class="list-meta">Updated: ${escapeHtml(item.updated_at || "-")}</div>
+      <div class="list-meta">Type: ${typeVal}</div>
+      <div class="list-meta">Material: ${materialVal}</div>
+      <div class="list-meta">Closure: ${closureVal}</div>
+      <div class="list-meta">Style: ${styleVal}</div>
+      <div class="list-meta">Size/Volume: ${sizeVal}</div>
+      <div class="list-meta">Updated: ${updatedVal}</div>
     `;
     el.assetCatalogList.appendChild(card);
   });
@@ -712,16 +705,19 @@ async function generate3DPreview() {
   }
 }
 
-async function indexAssetMetadata() {
+async function indexAssetMetadata({ forceReindex = false, source = "Index Asset Metadata" } = {}) {
   el.indexAssetsBtn.disabled = true;
   startIndexProgressTicker();
   try {
-    appendIndexStatus("Request sent to backend indexer.");
-    const res = await apiPost("/api/assets/index", { force_reindex: false });
+    appendIndexStatus(`${source}: request sent to backend indexer.`);
+    const res = await apiPost("/api/assets/index", { force_reindex: forceReindex });
     stopIndexProgressTicker();
     appendIndexStatus(`Metadata extraction completed: 100%`);
     appendIndexStatus(`Processed assets: ${res.total_assets}`);
-    appendIndexStatus(`Newly indexed in this run: ${res.indexed_count}`);
+    for (let i = 1; i <= res.total_assets; i += 1) {
+      appendIndexStatus(`Processed file ${i}/${res.total_assets}`);
+    }
+    appendIndexStatus(`Updated in this run: ${res.indexed_count}`);
     appendIndexStatus("Indexing finished successfully.");
     addMessage("system", `Indexed ${res.indexed_count} assets out of ${res.total_assets}.`);
     await refreshSession();
@@ -807,7 +803,7 @@ el.generate3dPreviewBtn.addEventListener("click", async () => {
 });
 el.indexAssetsBtn.addEventListener("click", async () => {
   try {
-    await indexAssetMetadata();
+    await indexAssetMetadata({ forceReindex: false, source: "Index Asset Metadata" });
   } catch (err) {
     addMessage("system", err.message);
   }
@@ -874,6 +870,7 @@ el.continueBaselineBtn.addEventListener("click", async () => {
 
 el.refreshCatalogBtn.addEventListener("click", async () => {
   try {
+    await indexAssetMetadata({ forceReindex: true, source: "Refresh Catalog" });
     await refreshAssetCatalog();
   } catch (err) {
     addMessage("system", err.message);

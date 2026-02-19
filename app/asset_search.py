@@ -129,7 +129,7 @@ class AssetCatalog:
         with self._conn() as conn:
             row = conn.execute(
                 """
-                SELECT metadata_json
+                SELECT product_type, material, closure_type, design_style, size_or_volume
                 FROM asset_metadata
                 WHERE asset_path = ?
                 """,
@@ -137,14 +137,12 @@ class AssetCatalog:
             ).fetchone()
         if not row:
             return True
-        raw = row["metadata_json"]
-        if not raw:
-            return True
-        try:
-            parsed = json.loads(raw)
-            return not (isinstance(parsed, dict) and len(parsed) > 0)
-        except Exception:
-            return True
+        required_cols = ["product_type", "material", "closure_type", "design_style", "size_or_volume"]
+        for col in required_cols:
+            value = row[col]
+            if value is None or str(value).strip() == "":
+                return True
+        return False
 
     def _prune_deleted_assets(self, existing_assets: list[Path]) -> int:
         # Normalize all on-disk assets to absolute paths so we can compare reliably
@@ -171,20 +169,6 @@ class AssetCatalog:
             return len(stale_paths)
 
     def _upsert_metadata(self, asset: Path, metadata: dict[str, Any]) -> None:
-        def _pick(*keys: str) -> Any:
-            for key in keys:
-                if key in metadata and metadata.get(key) not in (None, ""):
-                    return metadata.get(key)
-            return None
-
-        raw_tags = _pick("tags", "keywords", "tag_list")
-        if isinstance(raw_tags, list):
-            tags_txt = ", ".join(str(t).strip() for t in raw_tags if str(t).strip())
-        elif isinstance(raw_tags, str):
-            tags_txt = raw_tags.strip()
-        else:
-            tags_txt = ""
-
         with self._conn() as conn:
             conn.execute(
                 """
@@ -207,111 +191,17 @@ class AssetCatalog:
                 (
                     str(asset),
                     asset.name,
-                    _pick("product_type", "type", "packaging_type", "product"),
-                    _pick("material", "intended_material", "material_type"),
-                    _pick("closure_type", "closure", "cap_type", "lid_type"),
-                    _pick("design_style", "style", "visual_style"),
-                    _pick("size_or_volume", "size", "volume", "capacity"),
-                    tags_txt,
-                    _pick("summary", "description", "meta_description"),
+                    metadata.get("product_type"),
+                    metadata.get("material"),
+                    metadata.get("closure_type"),
+                    metadata.get("design_style"),
+                    metadata.get("size_or_volume"),
+                    ", ".join(metadata.get("tags", [])),
+                    metadata.get("summary"),
                     json.dumps(metadata),
                 ),
             )
             conn.commit()
-
-    @staticmethod
-    def _row_metadata(row: sqlite3.Row) -> dict[str, Any]:
-        raw = row["metadata_json"]
-        if not raw:
-            return {}
-        try:
-            parsed = json.loads(raw)
-            return parsed if isinstance(parsed, dict) else {}
-        except Exception:
-            return {}
-
-    @staticmethod
-    def _pick_from_metadata(meta: dict[str, Any], *keys: str) -> Any:
-        for key in keys:
-            if key in meta and meta.get(key) not in (None, ""):
-                return meta.get(key)
-        return None
-
-    async def find_matches_llm(
-        self,
-        straive: StraiveClient,
-        spec: DesignSpec,
-        limit: int = 5,
-        api_key_override: str | None = None,
-    ) -> list[dict[str, Any]]:
-        with self._conn() as conn:
-            rows = conn.execute("SELECT * FROM asset_metadata").fetchall()
-        if not rows:
-            return []
-
-        candidates: list[dict[str, Any]] = []
-        for row in rows:
-            rel = self._relative_asset_path(row["asset_path"])
-            meta = self._row_metadata(row)
-            if not meta:
-                meta = {
-                    "product_type": row["product_type"],
-                    "material": row["material"],
-                    "closure_type": row["closure_type"],
-                    "design_style": row["design_style"],
-                    "size_or_volume": row["size_or_volume"],
-                    "tags": row["tags"],
-                    "summary": row["summary"],
-                }
-            candidates.append(
-                {
-                    "id": rel,
-                    "asset_path": row["asset_path"],
-                    "asset_rel_path": rel,
-                    "filename": row["filename"],
-                    "summary_default": row["summary"],
-                    "metadata": meta,
-                }
-            )
-
-        llm_scored = await straive.score_baseline_candidates(
-            spec=spec.model_dump(),
-            candidates=[{"id": c["id"], "metadata": c["metadata"]} for c in candidates],
-            api_key_override=api_key_override,
-        )
-        score_map: dict[str, dict[str, Any]] = {str(s.get("id")): s for s in llm_scored}
-
-        ranked: list[dict[str, Any]] = []
-        for c in candidates:
-            scored = score_map.get(c["id"], {})
-            score_val = scored.get("score", 0)
-            try:
-                score = float(score_val)
-            except Exception:
-                score = 0.0
-            reason = str(scored.get("reason", "")).strip() or None
-            meta = c["metadata"] if isinstance(c["metadata"], dict) else {}
-            ranked.append(
-                {
-                    "asset_path": c["asset_path"],
-                    "asset_rel_path": c["asset_rel_path"],
-                    "filename": c["filename"],
-                    "product_type": self._pick_from_metadata(meta, "product_type", "type", "packaging_type", "product"),
-                    "material": self._pick_from_metadata(meta, "material", "intended_material", "material_type"),
-                    "closure_type": self._pick_from_metadata(meta, "closure_type", "closure", "cap_type", "lid_type"),
-                    "design_style": self._pick_from_metadata(meta, "design_style", "style", "visual_style"),
-                    "size_or_volume": self._pick_from_metadata(meta, "size_or_volume", "size", "volume", "capacity"),
-                    "summary": self._pick_from_metadata(meta, "summary", "description", "meta_description")
-                    or c["summary_default"],
-                    "tags": self._pick_from_metadata(meta, "tags", "keywords", "tag_list"),
-                    "metadata_json": meta,
-                    "score": round(score, 2),
-                    "match_reason": reason,
-                }
-            )
-
-        ranked.sort(key=lambda x: float(x.get("score", 0)), reverse=True)
-        return [r for r in ranked if float(r.get("score", 0)) > 0][:limit]
 
     def find_matches(self, spec: DesignSpec, min_score: int = 2, limit: int = 5) -> list[dict[str, Any]]:
         with self._conn() as conn:

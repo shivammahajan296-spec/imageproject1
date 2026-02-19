@@ -309,11 +309,12 @@ class StraiveClient:
 
         system_prompt = (
             "You are a packaging image metadata extractor. "
-            "Return only valid JSON with keys: product_type, material, closure_type, design_style, "
-            "size_or_volume, tags (array of short strings), summary."
+            "Return strict JSON only with exactly these keys and no extras: "
+            "product_type, material, closure_type, design_style, size_or_volume. "
+            "If a value is unknown, return null."
         )
         user_content = [
-            {"type": "text", "text": "Extract packaging metadata for baseline matching. Keep values concise."},
+            {"type": "text", "text": "Extract only the required fields for baseline matching."},
             {"type": "image_url", "image_url": {"url": data_url}},
         ]
         payload = {
@@ -337,68 +338,7 @@ class StraiveClient:
             logger.info("Straive asset metadata response: %s", self._redact(data))
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
             parsed = self._parse_json_object(content)
-            if isinstance(parsed, dict) and parsed:
-                return parsed
-            return self._fallback_asset_metadata(image_path)
-
-    async def score_baseline_candidates(
-        self,
-        spec: dict[str, Any],
-        candidates: list[dict[str, Any]],
-        api_key_override: str | None = None,
-    ) -> list[dict[str, Any]]:
-        if not candidates:
-            return []
-        if not (api_key_override or self.settings.straive_api_key):
-            return [{"id": c.get("id"), "score": 0, "reason": "No API key configured"} for c in candidates]
-
-        system_prompt = (
-            "You are a packaging baseline matcher. "
-            "Score each candidate against the design spec from 0 to 100. "
-            "Return strict JSON only with key 'scores', where scores is an array of objects: "
-            "{id, score, reason}. "
-            "Use the same candidate id values provided. "
-            "Higher score means closer visual/packaging fit based on type, closure, material, style, and size hints."
-        )
-        payload = {
-            "model": self.settings.model_name,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": json.dumps({"spec": spec, "candidates": candidates}, ensure_ascii=False),
-                },
-            ],
-            "temperature": 0,
-            "response_format": {"type": "json_object"},
-        }
-        logger.info("Straive baseline score request: %s", self._redact(payload))
-        async with httpx.AsyncClient(timeout=90) as client:
-            resp = await client.post(
-                self.settings.chat_url,
-                headers=self._headers(api_key_override=api_key_override),
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            logger.info("Straive baseline score response: %s", self._redact(data))
-            content = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
-            parsed = self._parse_json_object(content)
-            scores = parsed.get("scores", []) if isinstance(parsed, dict) else []
-            if not isinstance(scores, list):
-                return []
-            out: list[dict[str, Any]] = []
-            for item in scores:
-                if not isinstance(item, dict):
-                    continue
-                out.append(
-                    {
-                        "id": str(item.get("id", "")).strip(),
-                        "score": item.get("score", 0),
-                        "reason": str(item.get("reason", "")).strip(),
-                    }
-                )
-            return out
+            return self._normalize_asset_metadata(parsed, image_path)
 
     async def extract_design_spec_from_brief(
         self, brief_text: str, api_key_override: str | None = None
@@ -482,12 +422,6 @@ class StraiveClient:
 
     @staticmethod
     def _normalize_asset_metadata(data: dict[str, Any], image_path: Path) -> dict[str, Any]:
-        def _pick(*keys: str) -> Any:
-            for k in keys:
-                if k in data and data.get(k) not in (None, ""):
-                    return data.get(k)
-            return None
-
         def _clean_scalar(value: Any) -> str | None:
             if value is None:
                 return None
@@ -496,41 +430,16 @@ class StraiveClient:
                 return None
             return txt
 
-        raw_tags = _pick("tags", "tag_list", "keywords")
-        tags: list[str] = []
-        if isinstance(raw_tags, list):
-            tags = [str(t).strip().lower() for t in raw_tags if str(t).strip()]
-        elif isinstance(raw_tags, str):
-            # Support comma-separated tags from models that return a plain string.
-            tags = [t.strip().lower() for t in raw_tags.split(",") if t.strip()]
-
-        product_type = _clean_scalar(_pick("product_type", "type", "packaging_type", "product"))
-        material = _clean_scalar(_pick("material", "intended_material", "material_type"))
-        closure_type = _clean_scalar(_pick("closure_type", "closure", "cap_type", "lid_type"))
-        design_style = _clean_scalar(_pick("design_style", "style", "visual_style"))
-        size_or_volume = _clean_scalar(_pick("size_or_volume", "size", "volume", "capacity"))
-        summary = _pick("summary", "description", "meta_description")
-        summary_txt = str(summary).strip() if summary is not None else ""
-
         normalized = {
-            "product_type": product_type,
-            "material": material,
-            "closure_type": closure_type,
-            "design_style": design_style,
-            "size_or_volume": size_or_volume,
-            "tags": tags[:12],
-            "summary": summary_txt or f"Baseline metadata for {image_path.name}",
+            "product_type": _clean_scalar(data.get("product_type")),
+            "material": _clean_scalar(data.get("material")),
+            "closure_type": _clean_scalar(data.get("closure_type")),
+            "design_style": _clean_scalar(data.get("design_style")),
+            "size_or_volume": _clean_scalar(data.get("size_or_volume")),
         }
-        # If model output is partial, complete missing fields with filename heuristics.
-        fallback = StraiveClient._fallback_asset_metadata(image_path)
-        for key in ["product_type", "material", "closure_type", "design_style", "size_or_volume"]:
-            if not normalized.get(key) and fallback.get(key):
-                normalized[key] = fallback.get(key)
-        if not normalized.get("tags") and fallback.get("tags"):
-            normalized["tags"] = fallback.get("tags", [])[:12]
-        if not normalized.get("summary") and fallback.get("summary"):
-            normalized["summary"] = fallback.get("summary")
-        return normalized
+        if any(normalized.values()):
+            return normalized
+        return StraiveClient._fallback_asset_metadata(image_path)
 
     @staticmethod
     def _fallback_asset_metadata(image_path: Path) -> dict[str, Any]:
@@ -571,6 +480,4 @@ class StraiveClient:
             "closure_type": closure,
             "design_style": style,
             "size_or_volume": size_or_volume,
-            "tags": [w for w in stem.split() if w][:10],
-            "summary": f"Filename-derived baseline metadata for {image_path.name}",
         }
