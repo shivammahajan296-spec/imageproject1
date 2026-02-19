@@ -23,6 +23,23 @@ body {
 }
 .topbar h1 { margin: 0; font-size: 1.1rem; }
 .top-actions { display: flex; align-items: center; gap: 10px; }
+.logo-slot {
+  width: 108px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  flex: 0 0 108px;
+}
+.logo-slot img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
 .icon-btn {
   width: 34px;
   height: 34px;
