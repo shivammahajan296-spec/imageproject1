@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pypdf import PdfReader
 
@@ -225,6 +226,11 @@ def _run_triposr(input_image_path: str, session_id: str) -> str:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/")
+def root() -> FileResponse:
+    return FileResponse("static/index.html")
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -640,4 +646,4 @@ async def get_session(session_id: str, request: Request) -> SessionResponse:
 
 app.mount("/asset-files", StaticFiles(directory=settings.assets_dir), name="asset-files")
 app.mount("/preview-3d", StaticFiles(directory=settings.triposr_output_dir), name="preview-3d")
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+app.mount("/static", StaticFiles(directory="static"), name="static")
