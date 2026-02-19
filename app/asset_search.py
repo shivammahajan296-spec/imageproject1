@@ -61,6 +61,9 @@ class AssetCatalog:
         api_key_override: str | None = None,
     ) -> tuple[int, int]:
         assets = self.list_assets()
+        deleted = self._prune_deleted_assets(assets)
+        if deleted:
+            logger.info("Pruned %s deleted asset metadata rows.", deleted)
         indexed = 0
         for asset in assets:
             if not force_reindex and self._has_asset(asset):
@@ -112,6 +115,30 @@ class AssetCatalog:
                 (str(asset),),
             ).fetchone()
         return row is not None
+
+    def _prune_deleted_assets(self, existing_assets: list[Path]) -> int:
+        # Normalize all on-disk assets to absolute paths so we can compare reliably
+        # even if DB rows were written with relative paths in earlier sessions.
+        existing_resolved = {str(p.resolve()) for p in existing_assets}
+        with self._conn() as conn:
+            rows = conn.execute("SELECT asset_path FROM asset_metadata").fetchall()
+            stale_paths: list[str] = []
+            for row in rows:
+                raw_path = row["asset_path"]
+                try:
+                    resolved = str(Path(raw_path).resolve())
+                except Exception:
+                    resolved = raw_path
+                if resolved not in existing_resolved and not Path(raw_path).is_file():
+                    stale_paths.append(raw_path)
+
+            if stale_paths:
+                conn.executemany(
+                    "DELETE FROM asset_metadata WHERE asset_path = ?",
+                    [(p,) for p in stale_paths],
+                )
+                conn.commit()
+            return len(stale_paths)
 
     def _upsert_metadata(self, asset: Path, metadata: dict[str, Any]) -> None:
         with self._conn() as conn:
