@@ -321,12 +321,12 @@ function renderAssetCatalog(items) {
     el.assetCatalogList.appendChild(empty);
     return;
   }
-  items.forEach((item) => {
+  items.forEach((item, idx) => {
     const card = document.createElement("div");
     card.className = "list-item";
     const previewSrc = `/asset-files/${encodeURIComponent(item.asset_rel_path).replace(/%2F/g, "/")}`;
     card.innerHTML = `
-      <strong># Meta Description</strong>
+      <strong>${idx + 1}</strong>
       <img class="candidate-thumb" src="${previewSrc}" alt="Asset preview" />
       <div class="list-meta">${item.summary || "No summary"}</div>
       <div class="list-meta">Type: ${item.product_type || "-"} | Material: ${item.material || "-"} | Closure: ${item.closure_type || "-"}</div>
