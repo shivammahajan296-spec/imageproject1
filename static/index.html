@@ -56,6 +56,13 @@
           </div>
           <div class="card baseline-card">
             <h2>Baseline Decision</h2>
+            <div class="actions-row baseline-actions-top">
+              <button id="continueBaselineBtn" class="btn" type="button" hidden>Continue With Baseline</button>
+              <button id="baselineSkipBtn" class="btn secondary" type="button" hidden>Continue Without Baseline</button>
+            </div>
+            <div id="baselineProgress" class="baseline-progress" hidden>
+              <span id="baselineProgressFill"></span>
+            </div>
             <p id="baselineStatus">Baseline decision pending.</p>
             <div id="baselineCandidates" class="list-grid"></div>
             <div id="baselineMatch" class="baseline-match" hidden>
@@ -63,7 +70,6 @@
               <img id="baselinePreview" alt="Baseline asset" src="" />
               <p id="baselineSummary"></p>
             </div>
-            <button id="baselineSkipBtn" class="btn secondary" type="button" hidden>Continue Without Baseline</button>
           </div>
         </section>
 

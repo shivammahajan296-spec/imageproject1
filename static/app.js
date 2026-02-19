@@ -6,6 +6,11 @@ const state = {
   session: null,
   activeScreen: 1,
 };
+const BASELINE_MIN_DELAY_MS = 3000;
+const BASELINE_DECISION_MESSAGES = new Set([
+  "Searching for a similar baseline design…",
+  "No close baseline found. Creating a new concept.",
+]);
 localStorage.setItem("packDesignSession", state.sessionId);
 state.apiKey = localStorage.getItem(`straiveUserApiKey:${state.sessionId}`) || "";
 
@@ -32,11 +37,14 @@ const el = {
   specSummary: document.getElementById("specSummary"),
   missingInfo: document.getElementById("missingInfo"),
   baselineStatus: document.getElementById("baselineStatus"),
+  continueBaselineBtn: document.getElementById("continueBaselineBtn"),
   baselineCandidates: document.getElementById("baselineCandidates"),
   baselineMatch: document.getElementById("baselineMatch"),
   baselinePreview: document.getElementById("baselinePreview"),
   baselineSummary: document.getElementById("baselineSummary"),
   baselineSkipBtn: document.getElementById("baselineSkipBtn"),
+  baselineProgress: document.getElementById("baselineProgress"),
+  baselineProgressFill: document.getElementById("baselineProgressFill"),
   generate2dBtn: document.getElementById("generate2dBtn"),
   manualEdit: document.getElementById("manualEdit"),
   applyManualBtn: document.getElementById("applyManualBtn"),
@@ -64,6 +72,7 @@ const el = {
   assetCatalogList: document.getElementById("assetCatalogList"),
 };
 let operationInFlight = false;
+let baselineLoadingInProgress = false;
 const activeScreenStorageKey = `packDesignActiveScreen:${state.sessionId}`;
 const storedActiveScreen = Number(sessionStorage.getItem(activeScreenStorageKey) || "1");
 if ([1, 2, 3, 4].includes(storedActiveScreen)) {
@@ -72,6 +81,25 @@ if ([1, 2, 3, 4].includes(storedActiveScreen)) {
 
 function reloadAfterImageUpdate() {
   window.location.reload();
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function setBaselineLoading(isLoading) {
+  baselineLoadingInProgress = isLoading;
+  el.baselineProgress.hidden = !isLoading;
+  if (isLoading) {
+    el.baselineProgressFill.style.transition = "none";
+    el.baselineProgressFill.style.width = "0%";
+    void el.baselineProgressFill.offsetWidth;
+    el.baselineProgressFill.style.transition = `width ${BASELINE_MIN_DELAY_MS}ms linear`;
+    el.baselineProgressFill.style.width = "100%";
+  } else {
+    el.baselineProgressFill.style.transition = "none";
+    el.baselineProgressFill.style.width = "0%";
+  }
 }
 
 function canRunEditNow() {
@@ -203,6 +231,13 @@ function renderBaselineMatch(match) {
 
 function renderBaselineCandidates(matches, selectedRelPath) {
   el.baselineCandidates.innerHTML = "";
+  if (baselineLoadingInProgress) {
+    const row = document.createElement("div");
+    row.className = "list-item";
+    row.textContent = "Searching and scoring baseline assets...";
+    el.baselineCandidates.appendChild(row);
+    return;
+  }
   if (!matches || !matches.length) {
     const row = document.createElement("div");
     row.className = "list-item";
@@ -230,23 +265,27 @@ function renderBaselineCandidates(matches, selectedRelPath) {
     selectBtn.textContent = isSelected ? "Selected" : "Select & Continue";
     selectBtn.disabled = Boolean(isSelected);
     selectBtn.addEventListener("click", async () => {
-      try {
-        await apiPost("/api/image/adopt-baseline", {
-          session_id: state.sessionId,
-          asset_rel_path: m.asset_rel_path,
-        });
-        await refreshSession();
-        setActiveScreen(2);
-        addMessage("system", `Baseline selected: ${m.filename}. Reloading...`);
-        reloadAfterImageUpdate();
-      } catch (err) {
-        addMessage("system", err.message);
-      }
+      await adoptBaselineCandidate(m);
     });
     actions.appendChild(selectBtn);
     row.appendChild(actions);
     el.baselineCandidates.appendChild(row);
   });
+}
+
+async function adoptBaselineCandidate(match) {
+  try {
+    await apiPost("/api/image/adopt-baseline", {
+      session_id: state.sessionId,
+      asset_rel_path: match.asset_rel_path,
+    });
+    await refreshSession();
+    setActiveScreen(2);
+    addMessage("system", `Baseline selected: ${match.filename}. Reloading...`);
+    reloadAfterImageUpdate();
+  } catch (err) {
+    addMessage("system", err.message);
+  }
 }
 
 function setActiveScreen(screenNumber) {
@@ -362,9 +401,14 @@ function updateFromSession(s) {
   const baselineDecision = s.baseline_decision || "Baseline decision pending.";
   el.baselineStatus.textContent = baselineDecision;
   renderBaselineCandidates(s.baseline_matches || [], s.baseline_asset?.asset_rel_path || null);
-  renderBaselineMatch(s.baseline_asset);
+  if (baselineLoadingInProgress) {
+    el.baselineMatch.hidden = true;
+  } else {
+    renderBaselineMatch(s.baseline_asset);
+  }
   const hasBaselineMatch = Boolean((s.baseline_matches || []).length);
   el.baselineSkipBtn.hidden = !(s.step >= 3 && !s.images?.length);
+  el.continueBaselineBtn.hidden = !(s.step >= 3 && !s.images?.length && hasBaselineMatch);
 
   renderThumbs(s.images || []);
   if (s.images && s.images.length) {
@@ -409,6 +453,21 @@ async function refreshSession() {
   await refreshRecommendations();
 }
 
+async function refreshSessionWithBaselineDelay() {
+  const start = Date.now();
+  setBaselineLoading(true);
+  await refreshSession();
+  const elapsed = Date.now() - start;
+  const remain = Math.max(0, BASELINE_MIN_DELAY_MS - elapsed);
+  if (remain > 0) {
+    await sleep(remain);
+  }
+  setBaselineLoading(false);
+  if (state.session) {
+    updateFromSession(state.session);
+  }
+}
+
 async function refreshAssetCatalog() {
   const data = await apiGet("/api/assets/catalog");
   renderAssetCatalog(data.items || []);
@@ -440,7 +499,12 @@ async function sendChat(message) {
   addMessage("user", message);
   const data = await apiPost("/api/chat", { session_id: state.sessionId, user_message: message });
   addMessage("assistant", data.assistant_message);
-  await refreshSession();
+  const msg = (data.assistant_message || "").trim();
+  if (BASELINE_DECISION_MESSAGES.has(msg)) {
+    await refreshSessionWithBaselineDelay();
+  } else {
+    await refreshSession();
+  }
 }
 
 function build2DPromptFromSession() {
@@ -701,6 +765,17 @@ el.baselineSkipBtn.addEventListener("click", async () => {
   } catch (err) {
     addMessage("system", err.message);
   }
+});
+
+el.continueBaselineBtn.addEventListener("click", async () => {
+  const matches = state.session?.baseline_matches || [];
+  if (!matches.length) {
+    addMessage("system", "No baseline matches are available yet.");
+    return;
+  }
+  const selectedPath = state.session?.baseline_asset?.asset_rel_path || matches[0].asset_rel_path;
+  const selectedMatch = matches.find((m) => m.asset_rel_path === selectedPath) || matches[0];
+  await adoptBaselineCandidate(selectedMatch);
 });
 
 el.refreshCatalogBtn.addEventListener("click", async () => {
