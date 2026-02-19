@@ -253,6 +253,15 @@ body {
 }
 .list-item strong { display: block; margin-bottom: 4px; }
 .list-meta { font-size: 0.84rem; color: var(--text-muted); margin-bottom: 6px; }
+.baseline-meta-score {
+  color: #3f3f3f;
+  font-weight: 700;
+  margin-top: 2px;
+}
+.baseline-meta-attrs {
+  color: #595959;
+  font-weight: 500;
+}
 .inline-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .candidate-thumb {
   width: 100%;

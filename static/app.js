@@ -226,7 +226,11 @@ function renderBaselineMatch(match) {
   }
   el.baselineMatch.hidden = false;
   el.baselinePreview.src = `/asset-files/${encodeURIComponent(match.asset_rel_path).replace(/%2F/g, "/")}`;
-  el.baselineSummary.textContent = `${match.filename} | ${match.summary || "Matched baseline asset"} | score ${match.score}`;
+  const score = Number.isFinite(match.score) ? match.score : "-";
+  const typeVal = match.product_type || "-";
+  const materialVal = match.material || "-";
+  const closureVal = match.closure_type || "-";
+  el.baselineSummary.textContent = `${match.summary || "Matched baseline asset"} | Score: ${score} | Type: ${typeVal} | Material: ${materialVal} | Closure: ${closureVal}`;
 }
 
 function renderBaselineCandidates(matches, selectedRelPath) {
@@ -251,11 +255,16 @@ function renderBaselineCandidates(matches, selectedRelPath) {
     row.className = "list-item";
     const previewSrc = `/asset-files/${encodeURIComponent(m.asset_rel_path).replace(/%2F/g, "/")}`;
     const isSelected = selectedRelPath && selectedRelPath === m.asset_rel_path;
+    const score = Number.isFinite(m.score) ? m.score : "-";
+    const typeVal = m.product_type || "-";
+    const materialVal = m.material || "-";
+    const closureVal = m.closure_type || "-";
     row.innerHTML = `
-      <strong>#${idx + 1} ${m.filename} ${isSelected ? "(Selected)" : ""}</strong>
-      <img class="candidate-thumb" src="${previewSrc}" alt="${m.filename}" />
-      <div class="list-meta">Score ${m.score} | ${m.summary || "Baseline candidate"}</div>
-      <div class="list-meta">Type ${m.product_type || "-"} | Material ${m.material || "-"} | Closure ${m.closure_type || "-"}</div>
+      <strong># Meta Description ${isSelected ? "(Selected)" : ""}</strong>
+      <img class="candidate-thumb" src="${previewSrc}" alt="Baseline candidate preview" />
+      <div class="list-meta baseline-meta-score">Score: ${score}</div>
+      <div class="list-meta baseline-meta-attrs">Type: ${typeVal} | Material: ${materialVal} | Closure: ${closureVal}</div>
+      <div class="list-meta">${m.summary || "Baseline candidate"}</div>
     `;
     const actions = document.createElement("div");
     actions.className = "inline-actions";
@@ -281,7 +290,7 @@ async function adoptBaselineCandidate(match) {
     });
     await refreshSession();
     setActiveScreen(2);
-    addMessage("system", `Baseline selected: ${match.filename}. Reloading...`);
+    addMessage("system", "Baseline selected. Reloading...");
     reloadAfterImageUpdate();
   } catch (err) {
     addMessage("system", err.message);
@@ -317,8 +326,8 @@ function renderAssetCatalog(items) {
     card.className = "list-item";
     const previewSrc = `/asset-files/${encodeURIComponent(item.asset_rel_path).replace(/%2F/g, "/")}`;
     card.innerHTML = `
-      <strong>${item.filename}</strong>
-      <img class="candidate-thumb" src="${previewSrc}" alt="${item.filename}" />
+      <strong># Meta Description</strong>
+      <img class="candidate-thumb" src="${previewSrc}" alt="Asset preview" />
       <div class="list-meta">${item.summary || "No summary"}</div>
       <div class="list-meta">Type: ${item.product_type || "-"} | Material: ${item.material || "-"} | Closure: ${item.closure_type || "-"}</div>
       <div class="list-meta">Style: ${item.design_style || "-"} | Size/Volume: ${item.size_or_volume || "-"}</div>
