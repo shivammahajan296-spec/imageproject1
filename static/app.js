@@ -355,6 +355,25 @@ function computeAllowedScreen(step, hasBaselineMatch = false) {
 }
 
 function renderAssetCatalog(items) {
+  function cleanValue(v) {
+    if (v === null || v === undefined) return "";
+    const t = String(v).trim();
+    if (!t) return "";
+    if (["none", "null", "unknown", "n/a", "na", "-"].includes(t.toLowerCase())) return "";
+    return t;
+  }
+
+  function pickFromItem(item, keys) {
+    const meta = item && typeof item.metadata_json === "object" ? item.metadata_json : {};
+    for (const key of keys) {
+      const direct = cleanValue(item[key]);
+      if (direct) return direct;
+      const fromMeta = cleanValue(meta[key]);
+      if (fromMeta) return fromMeta;
+    }
+    return "-";
+  }
+
   el.assetCatalogList.innerHTML = "";
   el.catalogCount.textContent = `Total assets: ${items.length}`;
   if (!items.length) {
@@ -368,13 +387,20 @@ function renderAssetCatalog(items) {
     const card = document.createElement("div");
     card.className = "list-item";
     const previewSrc = `/asset-files/${encodeURIComponent(item.asset_rel_path).replace(/%2F/g, "/")}`;
+    const typeVal = pickFromItem(item, ["product_type", "type", "packaging_type", "product"]);
+    const materialVal = pickFromItem(item, ["material", "intended_material", "material_type"]);
+    const closureVal = pickFromItem(item, ["closure_type", "closure", "cap_type", "lid_type"]);
+    const styleVal = pickFromItem(item, ["design_style", "style", "visual_style"]);
+    const sizeVal = pickFromItem(item, ["size_or_volume", "size", "volume", "capacity"]);
+    const tagsVal = pickFromItem(item, ["tags", "keywords", "tag_list"]);
+    const summaryVal = pickFromItem(item, ["summary", "description", "meta_description"]);
     card.innerHTML = `
       <strong>${idx + 1}</strong>
       <img class="candidate-thumb" src="${previewSrc}" alt="Asset preview" />
-      <div class="list-meta">${item.summary || "No summary"}</div>
-      <div class="list-meta">Type: ${item.product_type || "-"} | Material: ${item.material || "-"} | Closure: ${item.closure_type || "-"}</div>
-      <div class="list-meta">Style: ${item.design_style || "-"} | Size/Volume: ${item.size_or_volume || "-"}</div>
-      <div class="list-meta">Tags: ${item.tags || "-"}</div>
+      <div class="list-meta">${summaryVal}</div>
+      <div class="list-meta">Type: ${typeVal} | Material: ${materialVal} | Closure: ${closureVal}</div>
+      <div class="list-meta">Style: ${styleVal} | Size/Volume: ${sizeVal}</div>
+      <div class="list-meta">Tags: ${tagsVal}</div>
       <div class="list-meta">Updated: ${item.updated_at}</div>
     `;
     el.assetCatalogList.appendChild(card);

@@ -83,7 +83,7 @@ class AssetCatalog:
             rows = conn.execute(
                 """
                 SELECT asset_path, filename, product_type, material, closure_type, design_style,
-                       size_or_volume, tags, summary, updated_at
+                       size_or_volume, tags, summary, metadata_json, updated_at
                 FROM asset_metadata
                 ORDER BY updated_at DESC
                 LIMIT ?
@@ -92,6 +92,14 @@ class AssetCatalog:
             ).fetchall()
         out: list[dict[str, Any]] = []
         for row in rows:
+            metadata_obj: dict[str, Any] | None = None
+            raw_metadata = row["metadata_json"]
+            if raw_metadata:
+                try:
+                    parsed = json.loads(raw_metadata)
+                    metadata_obj = parsed if isinstance(parsed, dict) else None
+                except Exception:
+                    metadata_obj = None
             out.append(
                 {
                     "asset_rel_path": self._relative_asset_path(row["asset_path"]),
@@ -103,6 +111,7 @@ class AssetCatalog:
                     "size_or_volume": row["size_or_volume"],
                     "tags": row["tags"],
                     "summary": row["summary"],
+                    "metadata_json": metadata_obj,
                     "updated_at": row["updated_at"],
                 }
             )

@@ -131,6 +131,7 @@ class AssetCatalogItem(BaseModel):
     size_or_volume: str | None = None
     tags: str | None = None
     summary: str | None = None
+    metadata_json: dict[str, Any] | None = None
     updated_at: str
 
 
