@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import ast
 import imghdr
 import json
 import logging
@@ -392,9 +393,30 @@ class StraiveClient:
         try:
             raw = json.loads(stripped)
             if isinstance(raw, dict):
+                if isinstance(raw.get("metadata"), dict):
+                    return raw["metadata"]
                 return raw
         except json.JSONDecodeError:
             pass
+        # Try extracting the first JSON-like object from free-form model output.
+        match = re.search(r"\{[\s\S]*\}", stripped)
+        if match:
+            candidate = match.group(0)
+            try:
+                raw = json.loads(candidate)
+                if isinstance(raw, dict):
+                    if isinstance(raw.get("metadata"), dict):
+                        return raw["metadata"]
+                    return raw
+            except json.JSONDecodeError:
+                try:
+                    py_obj = ast.literal_eval(candidate)
+                    if isinstance(py_obj, dict):
+                        if isinstance(py_obj.get("metadata"), dict):
+                            return py_obj["metadata"]
+                        return py_obj
+                except Exception:
+                    pass
         return {}
 
     @staticmethod
@@ -429,7 +451,7 @@ class StraiveClient:
         summary = _pick("summary", "description", "meta_description")
         summary_txt = str(summary).strip() if summary is not None else ""
 
-        return {
+        normalized = {
             "product_type": product_type,
             "material": material,
             "closure_type": closure_type,
@@ -438,20 +460,56 @@ class StraiveClient:
             "tags": tags[:12],
             "summary": summary_txt or f"Baseline metadata for {image_path.name}",
         }
+        # If model output is partial, complete missing fields with filename heuristics.
+        fallback = StraiveClient._fallback_asset_metadata(image_path)
+        for key in ["product_type", "material", "closure_type", "design_style", "size_or_volume"]:
+            if not normalized.get(key) and fallback.get(key):
+                normalized[key] = fallback.get(key)
+        if not normalized.get("tags") and fallback.get("tags"):
+            normalized["tags"] = fallback.get("tags", [])[:12]
+        if not normalized.get("summary") and fallback.get("summary"):
+            normalized["summary"] = fallback.get("summary")
+        return normalized
 
     @staticmethod
     def _fallback_asset_metadata(image_path: Path) -> dict[str, Any]:
         stem = image_path.stem.lower().replace("-", " ").replace("_", " ")
-        material = "glass" if "glass" in stem else ("pp" if "pp" in stem else None)
-        product_type = "jar" if "jar" in stem else ("bottle" if "bottle" in stem else None)
-        closure = "flip top" if "flip" in stem else ("screw" if "screw" in stem else None)
-        style = "matte" if "matte" in stem else ("luxury" if "luxury" in stem else None)
+        material = None
+        for m in ["glass", "pp", "pet", "hdpe", "aluminum", "paper"]:
+            if m in stem:
+                material = m
+                break
+        product_type = None
+        for p in ["jar", "bottle", "container", "cap"]:
+            if p in stem:
+                product_type = p
+                break
+        closure = None
+        if "flip" in stem:
+            closure = "flip top"
+        elif "screw" in stem or "thread" in stem:
+            closure = "screw"
+        elif "pump" in stem:
+            closure = "pump"
+        elif "snap" in stem:
+            closure = "snap"
+
+        style = None
+        for s in ["matte", "glossy", "minimal", "luxury", "premium", "clinical", "playful"]:
+            if s in stem:
+                style = s
+                break
+
+        size_or_volume = None
+        m = re.search(r"(\d+(?:\.\d+)?)\s*(ml|l|cc|oz|mm|cm)\b", stem)
+        if m:
+            size_or_volume = f"{m.group(1)} {m.group(2)}"
         return {
             "product_type": product_type,
             "material": material,
             "closure_type": closure,
             "design_style": style,
-            "size_or_volume": None,
+            "size_or_volume": size_or_volume,
             "tags": [w for w in stem.split() if w][:10],
             "summary": f"Filename-derived baseline metadata for {image_path.name}",
         }
