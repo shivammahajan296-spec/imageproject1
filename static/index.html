@@ -49,7 +49,6 @@
               </details>
               <div id="missingInfo" class="missing-info"></div>
               <div class="actions-row">
-                <button id="indexAssetsBtn" class="btn secondary">Index Asset Metadata</button>
                 <button id="uploadBriefBtn" class="btn secondary">Add Marketing Brief (PDF)</button>
                 <input id="briefFileInput" type="file" accept="application/pdf" hidden />
                 <button id="clearSessionBtn" class="btn secondary">Clear Session</button>
@@ -147,7 +146,12 @@
           <div class="card">
             <h2>Asset Database</h2>
             <div class="actions-row">
+              <button id="indexAssetsBtn" class="btn">Index Asset Metadata</button>
               <button id="refreshCatalogBtn" class="btn secondary">Refresh Catalog</button>
+            </div>
+            <div class="index-status-wrap">
+              <label for="indexStatusBox" class="label">Indexing Progress &amp; Status</label>
+              <textarea id="indexStatusBox" rows="7" readonly>Idle. Click "Index Asset Metadata" to start.</textarea>
             </div>
             <div id="catalogCount" class="list-meta">Total assets: 0</div>
             <div id="assetCatalogList" class="catalog-grid"></div>

@@ -61,6 +61,7 @@ const el = {
   threeDText: document.getElementById("threeDText"),
   modelViewer: document.getElementById("modelViewer"),
   indexAssetsBtn: document.getElementById("indexAssetsBtn"),
+  indexStatusBox: document.getElementById("indexStatusBox"),
   uploadBriefBtn: document.getElementById("uploadBriefBtn"),
   briefFileInput: document.getElementById("briefFileInput"),
   clearSessionBtn: document.getElementById("clearSessionBtn"),
@@ -73,6 +74,8 @@ const el = {
 };
 let operationInFlight = false;
 let baselineLoadingInProgress = false;
+let indexProgressTimer = null;
+let indexProgressStartTs = 0;
 const activeScreenStorageKey = `packDesignActiveScreen:${state.sessionId}`;
 const storedActiveScreen = Number(sessionStorage.getItem(activeScreenStorageKey) || "1");
 if ([1, 2, 3, 4].includes(storedActiveScreen)) {
@@ -99,6 +102,46 @@ function setBaselineLoading(isLoading) {
   } else {
     el.baselineProgressFill.style.transition = "none";
     el.baselineProgressFill.style.width = "0%";
+  }
+}
+
+function nowTimeLabel() {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
+function setIndexStatus(lines) {
+  if (!el.indexStatusBox) return;
+  el.indexStatusBox.value = lines.join("\n");
+  el.indexStatusBox.scrollTop = el.indexStatusBox.scrollHeight;
+}
+
+function appendIndexStatus(line) {
+  if (!el.indexStatusBox) return;
+  const existing = el.indexStatusBox.value ? el.indexStatusBox.value.split("\n") : [];
+  existing.push(`[${nowTimeLabel()}] ${line}`);
+  setIndexStatus(existing);
+}
+
+function startIndexProgressTicker() {
+  stopIndexProgressTicker();
+  indexProgressStartTs = Date.now();
+  appendIndexStatus("Indexing started...");
+  appendIndexStatus("Scanning assets folder...");
+  indexProgressTimer = window.setInterval(() => {
+    const elapsed = Date.now() - indexProgressStartTs;
+    const pct = Math.min(95, Math.max(3, Math.floor(elapsed / 180)));
+    appendIndexStatus(`Indexing in progress... ${pct}%`);
+  }, 900);
+}
+
+function stopIndexProgressTicker() {
+  if (indexProgressTimer) {
+    window.clearInterval(indexProgressTimer);
+    indexProgressTimer = null;
   }
 }
 
@@ -644,10 +687,26 @@ async function generate3DPreview() {
 }
 
 async function indexAssetMetadata() {
-  const res = await apiPost("/api/assets/index", { force_reindex: false });
-  addMessage("system", `Indexed ${res.indexed_count} assets out of ${res.total_assets}.`);
-  await refreshSession();
-  await refreshAssetCatalog();
+  el.indexAssetsBtn.disabled = true;
+  startIndexProgressTicker();
+  try {
+    appendIndexStatus("Request sent to backend indexer.");
+    const res = await apiPost("/api/assets/index", { force_reindex: false });
+    stopIndexProgressTicker();
+    appendIndexStatus(`Metadata extraction completed: 100%`);
+    appendIndexStatus(`Processed assets: ${res.total_assets}`);
+    appendIndexStatus(`Newly indexed in this run: ${res.indexed_count}`);
+    appendIndexStatus("Indexing finished successfully.");
+    addMessage("system", `Indexed ${res.indexed_count} assets out of ${res.total_assets}.`);
+    await refreshSession();
+    await refreshAssetCatalog();
+  } catch (err) {
+    stopIndexProgressTicker();
+    appendIndexStatus(`Indexing failed: ${err.message}`);
+    throw err;
+  } finally {
+    el.indexAssetsBtn.disabled = false;
+  }
 }
 
 async function clearSessionState() {

@@ -239,6 +239,22 @@ body {
   border-radius: 8px; padding: 8px; cursor: pointer;
 }
 .label { display: block; margin: 8px 0 6px; font-weight: 600; }
+.index-status-wrap {
+  margin-top: 10px;
+}
+#indexStatusBox {
+  width: 100%;
+  min-height: 140px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fcfcfc;
+  color: #4a4a4a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  padding: 10px;
+  resize: vertical;
+}
 
 .three-d {
   border: 1px dashed #d4d4d4; border-radius: 10px; min-height: 220px; display: grid; place-items: center;
