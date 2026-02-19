@@ -399,17 +399,44 @@ class StraiveClient:
 
     @staticmethod
     def _normalize_asset_metadata(data: dict[str, Any], image_path: Path) -> dict[str, Any]:
-        tags = data.get("tags", [])
-        if not isinstance(tags, list):
-            tags = []
+        def _pick(*keys: str) -> Any:
+            for k in keys:
+                if k in data and data.get(k) not in (None, ""):
+                    return data.get(k)
+            return None
+
+        def _clean_scalar(value: Any) -> str | None:
+            if value is None:
+                return None
+            txt = str(value).strip().lower()
+            if not txt or txt in {"none", "null", "n/a", "na", "unknown"}:
+                return None
+            return txt
+
+        raw_tags = _pick("tags", "tag_list", "keywords")
+        tags: list[str] = []
+        if isinstance(raw_tags, list):
+            tags = [str(t).strip().lower() for t in raw_tags if str(t).strip()]
+        elif isinstance(raw_tags, str):
+            # Support comma-separated tags from models that return a plain string.
+            tags = [t.strip().lower() for t in raw_tags.split(",") if t.strip()]
+
+        product_type = _clean_scalar(_pick("product_type", "type", "packaging_type", "product"))
+        material = _clean_scalar(_pick("material", "intended_material", "material_type"))
+        closure_type = _clean_scalar(_pick("closure_type", "closure", "cap_type", "lid_type"))
+        design_style = _clean_scalar(_pick("design_style", "style", "visual_style"))
+        size_or_volume = _clean_scalar(_pick("size_or_volume", "size", "volume", "capacity"))
+        summary = _pick("summary", "description", "meta_description")
+        summary_txt = str(summary).strip() if summary is not None else ""
+
         return {
-            "product_type": str(data.get("product_type", "")).lower() or None,
-            "material": str(data.get("material", "")).lower() or None,
-            "closure_type": str(data.get("closure_type", "")).lower() or None,
-            "design_style": str(data.get("design_style", "")).lower() or None,
-            "size_or_volume": str(data.get("size_or_volume", "")).lower() or None,
-            "tags": [str(t).lower() for t in tags[:12] if str(t).strip()],
-            "summary": str(data.get("summary", "")).strip() or f"Baseline metadata for {image_path.name}",
+            "product_type": product_type,
+            "material": material,
+            "closure_type": closure_type,
+            "design_style": design_style,
+            "size_or_volume": size_or_volume,
+            "tags": tags[:12],
+            "summary": summary_txt or f"Baseline metadata for {image_path.name}",
         }
 
     @staticmethod

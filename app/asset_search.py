@@ -66,7 +66,7 @@ class AssetCatalog:
             logger.info("Pruned %s deleted asset metadata rows.", deleted)
         indexed = 0
         for asset in assets:
-            if not force_reindex and self._has_asset(asset):
+            if not force_reindex and self._has_asset(asset) and not self._asset_needs_reindex(asset):
                 continue
             metadata = await straive.describe_packaging_asset(asset, api_key_override=api_key_override)
             self._upsert_metadata(asset, metadata)
@@ -115,6 +115,25 @@ class AssetCatalog:
                 (str(asset),),
             ).fetchone()
         return row is not None
+
+    def _asset_needs_reindex(self, asset: Path) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT product_type, material, closure_type, design_style, size_or_volume, tags, summary
+                FROM asset_metadata
+                WHERE asset_path = ?
+                """,
+                (str(asset),),
+            ).fetchone()
+        if not row:
+            return True
+        required_cols = ["product_type", "material", "closure_type", "design_style", "summary"]
+        for col in required_cols:
+            value = row[col]
+            if value is None or str(value).strip() == "":
+                return True
+        return False
 
     def _prune_deleted_assets(self, existing_assets: list[Path]) -> int:
         # Normalize all on-disk assets to absolute paths so we can compare reliably
