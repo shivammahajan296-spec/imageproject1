@@ -31,7 +31,7 @@ def load_settings() -> Settings:
         cors_origins=origins if origins else ["*"],
         db_path=os.getenv("APP_DB_PATH", "app.db"),
         assets_dir=os.getenv("ASSETS_DIR", "assets"),
-        auto_index_assets=os.getenv("AUTO_INDEX_ASSETS", "true").lower() == "true",
+        auto_index_assets=os.getenv("AUTO_INDEX_ASSETS", "false").lower() == "true",
         triposr_command=os.getenv("TRIPOSR_COMMAND", ""),
         triposr_output_dir=os.getenv("TRIPOSR_OUTPUT_DIR", "preview_3d"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),

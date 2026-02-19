@@ -29,7 +29,7 @@ Set these before running:
 - `CORS_ORIGINS` (optional, comma-separated, default `*`)
 - `APP_DB_PATH` (optional, default `app.db`)
 - `ASSETS_DIR` (optional, default `assets`)
-- `AUTO_INDEX_ASSETS` (optional, default `true`; auto-indexes only new asset images during Step 3 baseline decision)
+- `AUTO_INDEX_ASSETS` (optional, default `false`; if true, auto-indexes asset images during Step 3 baseline decision)
 - `TRIPOSR_COMMAND` (required for 3D generation; example: `python run.py --input {input} --output-dir {output_dir}`)
 - `TRIPOSR_OUTPUT_DIR` (optional, default `preview_3d`)
 - `LOG_LEVEL` (optional, default `INFO`)
