@@ -257,7 +257,16 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
                     )
             except Exception as exc:
                 logger.warning("Auto asset indexing failed; continuing with existing metadata. error=%s", exc)
-        matches = asset_catalog.find_matches(state.spec, min_score=2, limit=5)
+        try:
+            matches = await asset_catalog.find_matches_llm(
+                straive=straive,
+                spec=state.spec,
+                limit=5,
+                api_key_override=req_api_key,
+            )
+        except Exception as exc:
+            logger.warning("LLM baseline scoring failed; falling back to deterministic scoring. error=%s", exc)
+            matches = asset_catalog.find_matches(state.spec, min_score=2, limit=5)
         state.baseline_matches = matches
         if not any(
             state.baseline_asset and state.baseline_asset.get("asset_rel_path") == m.get("asset_rel_path")

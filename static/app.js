@@ -374,63 +374,6 @@ function renderAssetCatalog(items) {
       .replaceAll("'", "&#39;");
   }
 
-  function labelize(key) {
-    const overrides = {
-      product_type: "Product Type",
-      closure_type: "Closure Type",
-      design_style: "Design Style",
-      size_or_volume: "Size/Volume",
-      intended_material: "Material",
-      material_type: "Material",
-      meta_description: "Meta Description",
-      tag_list: "Tags",
-      keywords: "Tags",
-    };
-    if (overrides[key]) return overrides[key];
-    return key
-      .replaceAll("_", " ")
-      .split(" ")
-      .filter(Boolean)
-      .map((p) => p[0].toUpperCase() + p.slice(1))
-      .join(" ");
-  }
-
-  function firstNonEmpty(obj, keys) {
-    for (const key of keys) {
-      const v = cleanValue(obj[key]);
-      if (v) return v;
-    }
-    return "";
-  }
-
-  function buildDisplayMetadata(item) {
-    const meta = item && typeof item.metadata_json === "object" ? { ...item.metadata_json } : {};
-    const out = {};
-    const canonical = {
-      product_type: ["product_type", "type", "packaging_type", "product"],
-      material: ["material", "intended_material", "material_type"],
-      closure_type: ["closure_type", "closure", "cap_type", "lid_type"],
-      design_style: ["design_style", "style", "visual_style"],
-      size_or_volume: ["size_or_volume", "size", "volume", "capacity"],
-      tags: ["tags", "keywords", "tag_list"],
-      summary: ["summary", "description", "meta_description"],
-    };
-
-    for (const [targetKey, aliases] of Object.entries(canonical)) {
-      const fromItem = firstNonEmpty(item, aliases);
-      const fromMeta = firstNonEmpty(meta, aliases);
-      const picked = fromItem || fromMeta;
-      if (picked) out[targetKey] = picked;
-    }
-
-    for (const [k, v] of Object.entries(meta)) {
-      const cleaned = cleanValue(v);
-      if (cleaned && !out[k]) out[k] = cleaned;
-    }
-
-    return out;
-  }
-
   el.assetCatalogList.innerHTML = "";
   el.catalogCount.textContent = `Total assets: ${items.length}`;
   if (!items.length) {
@@ -444,23 +387,20 @@ function renderAssetCatalog(items) {
     const card = document.createElement("div");
     card.className = "list-item";
     const previewSrc = `/asset-files/${encodeURIComponent(item.asset_rel_path).replace(/%2F/g, "/")}`;
-    const displayMeta = buildDisplayMetadata(item);
-    const summaryVal = displayMeta.summary || "No summary";
-    const preferredOrder = ["product_type", "material", "closure_type", "design_style", "size_or_volume", "tags"];
-    const shownKeys = Object.keys(displayMeta).filter((k) => k !== "summary");
-    const orderedKeys = [
-      ...preferredOrder.filter((k) => shownKeys.includes(k)),
-      ...shownKeys.filter((k) => !preferredOrder.includes(k)).sort(),
-    ];
-    const metaLines = orderedKeys
-      .map((k) => `<div class="list-meta">${escapeHtml(labelize(k))}: ${escapeHtml(displayMeta[k])}</div>`)
+    const rawMeta = item && typeof item.metadata_json === "object" ? item.metadata_json : {};
+    const entries = Object.entries(rawMeta).filter(([, val]) => cleanValue(val));
+    const summaryCandidate = entries.find(([k]) => k === "summary" || k === "description" || k === "meta_description");
+    const summaryVal = summaryCandidate ? cleanValue(summaryCandidate[1]) : "No summary";
+    const metaLines = entries
+      .filter(([k]) => !["summary", "description", "meta_description"].includes(k))
+      .map(([k, v]) => `<div class="list-meta">${escapeHtml(k)}: ${escapeHtml(cleanValue(v))}</div>`)
       .join("");
 
     card.innerHTML = `
       <strong>${idx + 1}</strong>
       <img class="candidate-thumb" src="${previewSrc}" alt="Asset preview" />
       <div class="list-meta">${escapeHtml(summaryVal)}</div>
-      ${metaLines}
+      ${metaLines || '<div class="list-meta">No metadata extracted.</div>'}
       <div class="list-meta">Updated: ${escapeHtml(item.updated_at || "-")}</div>
     `;
     el.assetCatalogList.appendChild(card);

@@ -337,7 +337,68 @@ class StraiveClient:
             logger.info("Straive asset metadata response: %s", self._redact(data))
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
             parsed = self._parse_json_object(content)
-            return self._normalize_asset_metadata(parsed, image_path)
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+            return self._fallback_asset_metadata(image_path)
+
+    async def score_baseline_candidates(
+        self,
+        spec: dict[str, Any],
+        candidates: list[dict[str, Any]],
+        api_key_override: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if not candidates:
+            return []
+        if not (api_key_override or self.settings.straive_api_key):
+            return [{"id": c.get("id"), "score": 0, "reason": "No API key configured"} for c in candidates]
+
+        system_prompt = (
+            "You are a packaging baseline matcher. "
+            "Score each candidate against the design spec from 0 to 100. "
+            "Return strict JSON only with key 'scores', where scores is an array of objects: "
+            "{id, score, reason}. "
+            "Use the same candidate id values provided. "
+            "Higher score means closer visual/packaging fit based on type, closure, material, style, and size hints."
+        )
+        payload = {
+            "model": self.settings.model_name,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": json.dumps({"spec": spec, "candidates": candidates}, ensure_ascii=False),
+                },
+            ],
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+        }
+        logger.info("Straive baseline score request: %s", self._redact(payload))
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(
+                self.settings.chat_url,
+                headers=self._headers(api_key_override=api_key_override),
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            logger.info("Straive baseline score response: %s", self._redact(data))
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+            parsed = self._parse_json_object(content)
+            scores = parsed.get("scores", []) if isinstance(parsed, dict) else []
+            if not isinstance(scores, list):
+                return []
+            out: list[dict[str, Any]] = []
+            for item in scores:
+                if not isinstance(item, dict):
+                    continue
+                out.append(
+                    {
+                        "id": str(item.get("id", "")).strip(),
+                        "score": item.get("score", 0),
+                        "reason": str(item.get("reason", "")).strip(),
+                    }
+                )
+            return out
 
     async def extract_design_spec_from_brief(
         self, brief_text: str, api_key_override: str | None = None
