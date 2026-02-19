@@ -260,7 +260,7 @@ function renderBaselineCandidates(matches, selectedRelPath) {
     const materialVal = m.material || "-";
     const closureVal = m.closure_type || "-";
     row.innerHTML = `
-      <strong># Meta Description ${isSelected ? "(Selected)" : ""}</strong>
+      <strong>#${idx + 1}${isSelected ? " (Selected)" : ""}</strong>
       <img class="candidate-thumb" src="${previewSrc}" alt="Baseline candidate preview" />
       <div class="list-meta baseline-meta-score">Score: ${score}</div>
       <div class="list-meta baseline-meta-attrs">Type: ${typeVal} | Material: ${materialVal} | Closure: ${closureVal}</div>
