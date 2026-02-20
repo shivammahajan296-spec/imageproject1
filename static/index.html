@@ -122,10 +122,7 @@
               <button id="approveCurrentForCadBtn" class="btn secondary">Approve Current Image</button>
             </div>
             <div class="card cad-drawing-card">
-              <div class="actions-row" style="margin-top: 0;">
-                <h2 style="margin: 0; flex: 1;">Generate CAD File</h2>
-                <button id="openCadPromptModalBtn" class="btn secondary tiny" type="button">Settings</button>
-              </div>
+              <h2 style="margin: 0;">Generate CAD File</h2>
               <div id="cadSheetProgress" class="op-progress" hidden>
                 <div id="cadSheetProgressText" class="op-progress-text">Generating CAD drawing sheet...</div>
                 <div class="op-progress-bar"><span></span></div>
@@ -133,6 +130,7 @@
               <div class="actions-row">
                 <button id="generateCadSheetBtn" class="btn">Generate CAD Drawing Sheet</button>
                 <button id="proceedTo3dBtn" class="btn warning" type="button">Proceed to 3D</button>
+                <button id="openCadPromptModalBtn" class="btn secondary" type="button">Customize Spec</button>
                 <a id="downloadCadSheetBtn" class="btn secondary" href="#" download="cad_drawing_sheet.png" hidden>Download Drawing</a>
               </div>
               <div class="cad-sheet-stage">
@@ -209,26 +207,34 @@
       <div class="modal-card modal-card-lg">
         <h3>Edit Spec</h3>
         <div class="spec-form-grid">
-          <label for="specTargetVolume">target_volume_ml</label>
-          <input id="specTargetVolume" type="text" placeholder="e.g., 50" />
-
-          <label for="specOverallHeight">Soverall_height_mm</label>
-          <input id="specOverallHeight" type="text" placeholder="e.g., 68" />
-
-          <label for="specOuterDiameter">outer_diameter_mm</label>
-          <input id="specOuterDiameter" type="text" placeholder="e.g., 52" />
-
-          <label for="specOuterWidth">outer_width_mm</label>
-          <input id="specOuterWidth" type="text" placeholder="e.g., 48" />
-
-          <label for="specOuterDepth">outer_depth_mm</label>
-          <input id="specOuterDepth" type="text" placeholder="e.g., 48" />
-
-          <label for="specWallThickness">wall_thickness_mm</label>
-          <input id="specWallThickness" type="text" placeholder="e.g., 2.2" />
-
-          <label for="specBaseThickness">base_thickness_mm</label>
-          <input id="specBaseThickness" type="text" placeholder="e.g., 3.0" />
+          <div class="spec-field">
+            <label for="specTargetVolume">target_volume_ml</label>
+            <input id="specTargetVolume" type="text" placeholder="e.g., 50" />
+          </div>
+          <div class="spec-field">
+            <label for="specOverallHeight">Soverall_height_mm</label>
+            <input id="specOverallHeight" type="text" placeholder="e.g., 68" />
+          </div>
+          <div class="spec-field">
+            <label for="specOuterDiameter">outer_diameter_mm</label>
+            <input id="specOuterDiameter" type="text" placeholder="e.g., 52" />
+          </div>
+          <div class="spec-field">
+            <label for="specOuterWidth">outer_width_mm</label>
+            <input id="specOuterWidth" type="text" placeholder="e.g., 48" />
+          </div>
+          <div class="spec-field">
+            <label for="specOuterDepth">outer_depth_mm</label>
+            <input id="specOuterDepth" type="text" placeholder="e.g., 48" />
+          </div>
+          <div class="spec-field">
+            <label for="specWallThickness">wall_thickness_mm</label>
+            <input id="specWallThickness" type="text" placeholder="e.g., 2.2" />
+          </div>
+          <div class="spec-field">
+            <label for="specBaseThickness">base_thickness_mm</label>
+            <input id="specBaseThickness" type="text" placeholder="e.g., 3.0" />
+          </div>
         </div>
         <div class="actions-row">
           <button id="saveCadPromptModalBtn" class="btn tiny" type="button">Save Spec</button>

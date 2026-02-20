@@ -298,17 +298,35 @@ body {
 }
 .spec-form-grid {
   display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 8px 12px;
-  align-items: center;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
   margin-top: 8px;
 }
-.spec-form-grid label {
+.spec-field {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fcfcfc;
+  padding: 10px;
+}
+.spec-field label {
+  display: block;
   font-size: 0.86rem;
   color: #4f4f4f;
+  margin-bottom: 6px;
+  font-weight: 600;
 }
-.spec-form-grid input {
+.spec-field input {
   width: 100%;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff;
+}
+
+@media (max-width: 860px) {
+  .spec-form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .list-grid { display: grid; gap: 8px; }
