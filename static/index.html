@@ -118,6 +118,14 @@
               <h2>Approval</h2>
               <p id="approvalStatus">No version approved yet.</p>
               <img id="approvedImagePreview" class="candidate-thumb" alt="Approved version preview" src="" hidden />
+              <label for="cadSheetPrompt" class="label">CAD File Image Prompt</label>
+              <textarea id="cadSheetPrompt" rows="8" placeholder="CAD drawing prompt..."></textarea>
+              <div id="cadSheetProgress" class="op-progress" hidden>
+                <div id="cadSheetProgressText" class="op-progress-text">Generating CAD drawing sheet...</div>
+                <div class="op-progress-bar"><span></span></div>
+              </div>
+              <button id="generateCadSheetBtn" class="btn">Generate CAD Drawing Sheet</button>
+              <img id="cadSheetPreview" class="candidate-thumb" alt="CAD drawing sheet preview" src="" hidden />
               <div id="preview3dProgress" class="op-progress" hidden>
                 <div id="preview3dProgressText" class="op-progress-text">Generating 3D preview...</div>
                 <div class="op-progress-bar"><span></span></div>

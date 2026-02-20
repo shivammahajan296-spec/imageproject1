@@ -11,6 +11,8 @@ const BASELINE_DECISION_MESSAGES = new Set([
   "Searching for a similar baseline design…",
   "No close baseline found. Creating a new concept.",
 ]);
+const DEFAULT_CAD_SHEET_PROMPT =
+  "Use the provided product image as reference and generate a professional mechanical CAD engineering drawing sheet of the object. Analyze the geometry, proportions, symmetry, and structure from the image and convert it into a precise technical drafting layout suitable for manufacturing documentation.\n\nDrawing Requirements:\n1. Generate complete orthographic projections:\n- Front View\n- Top View\n- Right Side View\n- Sectional View (cut through central axis if applicable)\n- Exploded View (if the object has multiple components)\n2. Include engineering detailing:\n- Centerlines\n- Hidden lines\n- Dimension lines with arrowheads\n- Proper scaling\n- Units in millimeters\n- Thread representation (if applicable)\n- Wall thickness callouts (if hollow)\n- Material labels (estimated from visual cues)\n- Standard tolerances (±0.1 mm unless otherwise required)\n3. Layout Specifications:\n- A3 engineering sheet format\n- Third-angle projection\n- Title block at bottom-right\n- Drawing name: Based on detected object\n- Scale: 1:1 (or appropriate estimated scale)\n- Clean mechanical drafting style\n- Black/gray linework\n- White or beige blueprint-style background\n- Proper borders and alignment\n4. If exact dimensions are not visible:\n- Infer realistic proportional dimensions based on object type\n- Maintain accurate relative proportions\n- Clearly mark inferred values as estimated\n5. Output:\n- High-resolution engineering drawing sheet\n- Manufacturing-ready visual format\n- Clean CAD blueprint style (not artistic sketch)\nStyle Reference: Industrial mechanical drafting / technical blueprint / SolidWorks drawing sheet style.";
 localStorage.setItem("packDesignSession", state.sessionId);
 state.apiKey = localStorage.getItem(`straiveUserApiKey:${state.sessionId}`) || "";
 
@@ -52,6 +54,11 @@ const el = {
   recList: document.getElementById("recList"),
   opProgress: document.getElementById("opProgress"),
   opProgressText: document.getElementById("opProgressText"),
+  cadSheetPrompt: document.getElementById("cadSheetPrompt"),
+  generateCadSheetBtn: document.getElementById("generateCadSheetBtn"),
+  cadSheetProgress: document.getElementById("cadSheetProgress"),
+  cadSheetProgressText: document.getElementById("cadSheetProgressText"),
+  cadSheetPreview: document.getElementById("cadSheetPreview"),
   generate3dPreviewBtn: document.getElementById("generate3dPreviewBtn"),
   open3dPreviewLink: document.getElementById("open3dPreviewLink"),
   preview3dProgress: document.getElementById("preview3dProgress"),
@@ -157,12 +164,14 @@ function applyActionAvailability() {
   if (!s) return;
   const hasImages = Boolean(s.images && s.images.length);
   const canGenerate2D = s.step >= 3 && !hasImages;
+  const canGenerateCadSheet = Boolean(s.approved_image_version && !operationInFlight);
   const canGenerate3D = Boolean(s.approved_image_version && !operationInFlight);
 
   el.generate2dBtn.disabled = operationInFlight || !canGenerate2D;
   // Keep Run Edit clickable so click handler can always provide deterministic feedback.
   el.applyManualBtn.disabled = false;
   el.applyManualBtn.classList.toggle("pseudo-disabled", !canRunEditNow());
+  el.generateCadSheetBtn.disabled = !canGenerateCadSheet;
   el.generate3dPreviewBtn.disabled = !canGenerate3D;
 }
 
@@ -193,6 +202,16 @@ function render3DViewer(previewFile) {
     return;
   }
   el.modelViewer.style.display = "none";
+}
+
+function renderCadSheetPreview(src) {
+  if (!src) {
+    el.cadSheetPreview.hidden = true;
+    el.cadSheetPreview.removeAttribute("src");
+    return;
+  }
+  el.cadSheetPreview.src = normalizeImageSource(src);
+  el.cadSheetPreview.hidden = false;
 }
 
 function addMessage(role, content) {
@@ -501,6 +520,8 @@ function updateFromSession(s) {
     el.approvalStatus.textContent = "No version approved yet.";
   }
   renderApprovedImage(s);
+  el.cadSheetPrompt.value = s.cad_sheet_prompt || DEFAULT_CAD_SHEET_PROMPT;
+  renderCadSheetPreview(s.cad_sheet_image_url_or_base64);
 
   el.threeDText.textContent = s.preview_3d_file
     ? `3D preview is ready from approved version v${s.approved_image_version || "-"}.`
@@ -691,6 +712,40 @@ function setPreview3DLoading(isLoading, text = "Generating 3D preview...") {
   }
 }
 
+function setCadSheetLoading(isLoading, text = "Generating CAD drawing sheet...") {
+  el.cadSheetProgress.hidden = !isLoading;
+  if (isLoading) {
+    el.cadSheetProgressText.textContent = text;
+  }
+}
+
+async function generateCadSheet() {
+  if (!state.session?.approved_image_version) {
+    addMessage("system", "Approve a version first before generating CAD drawing sheet.");
+    return;
+  }
+  const prompt = (el.cadSheetPrompt.value || "").trim();
+  if (!prompt) {
+    addMessage("system", "CAD prompt cannot be empty.");
+    return;
+  }
+  setOperationLoading(true, "Generating CAD drawing sheet...");
+  setCadSheetLoading(true, "Generating CAD drawing sheet...");
+  addMessage("system", "Generating CAD drawing sheet from approved image...");
+  try {
+    const res = await apiPost("/api/cad-sheet/generate", {
+      session_id: state.sessionId,
+      prompt,
+    });
+    addMessage("assistant", res.message);
+    renderCadSheetPreview(res.image_url_or_base64);
+    await refreshSession();
+  } finally {
+    setOperationLoading(false);
+    setCadSheetLoading(false);
+  }
+}
+
 async function generate3DPreview() {
   setOperationLoading(true, "Preparing 3D generation...");
   setPreview3DLoading(true, "Generating 3D preview using TripoSR...");
@@ -797,6 +852,13 @@ el.applyManualBtn.addEventListener("click", async () => {
 el.generate3dPreviewBtn.addEventListener("click", async () => {
   try {
     await generate3DPreview();
+  } catch (err) {
+    addMessage("system", err.message);
+  }
+});
+el.generateCadSheetBtn.addEventListener("click", async () => {
+  try {
+    await generateCadSheet();
   } catch (err) {
     addMessage("system", err.message);
   }

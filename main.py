@@ -32,6 +32,8 @@ from app.models import (
     ChatResponse,
     EditRecommendationsResponse,
     BriefUploadResponse,
+    CadSheetGenerateRequest,
+    CadSheetGenerateResponse,
     Preview3DGenerateRequest,
     Preview3DGenerateResponse,
     VersionApproveRequest,
@@ -425,6 +427,10 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
     state.approved_image_id = None
     state.approved_image_version = None
     state.approved_image_local_path = None
+    state.cad_sheet_prompt = None
+    state.cad_sheet_image_id = None
+    state.cad_sheet_image_url_or_base64 = None
+    state.cad_sheet_image_local_path = None
     state.preview_3d_file = None
 
     store.save(state)
@@ -476,6 +482,10 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
     state.approved_image_id = None
     state.approved_image_version = None
     state.approved_image_local_path = None
+    state.cad_sheet_prompt = None
+    state.cad_sheet_image_id = None
+    state.cad_sheet_image_url_or_base64 = None
+    state.cad_sheet_image_local_path = None
     state.preview_3d_file = None
 
     store.save(state)
@@ -514,6 +524,10 @@ async def adopt_baseline(payload: BaselineAdoptRequest, request: Request) -> Ima
     state.approved_image_id = None
     state.approved_image_version = None
     state.approved_image_local_path = None
+    state.cad_sheet_prompt = None
+    state.cad_sheet_image_id = None
+    state.cad_sheet_image_url_or_base64 = None
+    state.cad_sheet_image_local_path = None
     state.preview_3d_file = None
     if state.step < 4:
         state.step = 4
@@ -543,6 +557,9 @@ async def approve_version(payload: VersionApproveRequest, request: Request) -> V
     state.approved_image_id = target.image_id
     state.approved_image_version = target.version
     state.approved_image_local_path = target.local_image_path
+    state.cad_sheet_image_id = None
+    state.cad_sheet_image_url_or_base64 = None
+    state.cad_sheet_image_local_path = None
     # Approve screen entry point for TripoSR 2D -> 3D conversion.
     if state.step < 6:
         state.step = 6
@@ -600,6 +617,40 @@ async def generate_preview_3d(payload: Preview3DGenerateRequest, request: Reques
     )
 
 
+@app.post("/api/cad-sheet/generate", response_model=CadSheetGenerateResponse)
+async def generate_cad_sheet(payload: CadSheetGenerateRequest, request: Request) -> CadSheetGenerateResponse:
+    limiter.check(request, "cad-sheet-generate")
+    state = store.get_or_create(payload.session_id)
+    req_api_key = _request_api_key(request)
+
+    if not state.approved_image_local_path:
+        raise HTTPException(status_code=400, detail="Approve a version first before generating CAD drawing sheet.")
+
+    input_path = state.approved_image_local_path
+    if not Path(input_path).exists():
+        raise HTTPException(status_code=404, detail="Approved source image file is missing on disk.")
+
+    edited = await straive.image_edit(input_path, payload.prompt, api_key_override=req_api_key)
+    blob, mime_type = await _resolve_image_bytes(edited["image_url_or_base64"], req_api_key=req_api_key)
+    ext = mimetypes.guess_extension(mime_type) or ".png"
+    sess_dir = SESSION_IMAGE_DIR / _safe_session_key(payload.session_id)
+    sess_dir.mkdir(parents=True, exist_ok=True)
+    local_path = sess_dir / f"cad_sheet_{uuid.uuid4().hex[:8]}{ext}"
+    local_path.write_bytes(blob)
+    data_url = f"data:{mime_type};base64,{base64.b64encode(blob).decode('utf-8')}"
+
+    state.cad_sheet_prompt = payload.prompt
+    state.cad_sheet_image_id = edited.get("image_id") or f"cad-sheet-{uuid.uuid4().hex[:8]}"
+    state.cad_sheet_image_url_or_base64 = data_url
+    state.cad_sheet_image_local_path = str(local_path.resolve())
+    store.save(state)
+    return CadSheetGenerateResponse(
+        message=f"CAD drawing sheet generated from approved version v{state.approved_image_version}.",
+        image_id=state.cad_sheet_image_id,
+        image_url_or_base64=state.cad_sheet_image_url_or_base64,
+    )
+
+
 @app.post("/api/baseline/skip", response_model=BaselineSkipResponse)
 async def skip_baseline(payload: BaselineSkipRequest, request: Request) -> BaselineSkipResponse:
     limiter.check(request, "baseline-skip")
@@ -628,6 +679,10 @@ async def clear_session(payload: SessionClearRequest, request: Request) -> Sessi
     reset_state.approved_image_id = None
     reset_state.approved_image_version = None
     reset_state.approved_image_local_path = None
+    reset_state.cad_sheet_prompt = None
+    reset_state.cad_sheet_image_id = None
+    reset_state.cad_sheet_image_url_or_base64 = None
+    reset_state.cad_sheet_image_local_path = None
     reset_state.lock_question_asked = False
     reset_state.lock_confirmed = False
     reset_state.design_summary = None

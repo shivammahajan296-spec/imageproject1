@@ -41,6 +41,10 @@ class SessionState(BaseModel):
     approved_image_id: str | None = None
     approved_image_version: int | None = None
     approved_image_local_path: str | None = None
+    cad_sheet_prompt: str | None = None
+    cad_sheet_image_id: str | None = None
+    cad_sheet_image_url_or_base64: str | None = None
+    cad_sheet_image_local_path: str | None = None
     lock_question_asked: bool = False
     lock_confirmed: bool = False
     design_summary: str | None = None
@@ -164,3 +168,14 @@ class VersionApproveRequest(BaseModel):
 class VersionApproveResponse(BaseModel):
     message: str
     approved_version: int
+
+
+class CadSheetGenerateRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(min_length=10, max_length=8000)
+
+
+class CadSheetGenerateResponse(BaseModel):
+    message: str
+    image_id: str
+    image_url_or_base64: str
