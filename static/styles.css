@@ -296,6 +296,20 @@ body {
   font-size: 0.92rem;
   font-family: inherit;
 }
+.spec-form-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 8px 12px;
+  align-items: center;
+  margin-top: 8px;
+}
+.spec-form-grid label {
+  font-size: 0.86rem;
+  color: #4f4f4f;
+}
+.spec-form-grid input {
+  width: 100%;
+}
 
 .list-grid { display: grid; gap: 8px; }
 .baseline-card .list-grid {

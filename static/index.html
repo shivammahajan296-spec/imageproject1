@@ -133,7 +133,6 @@
               <div class="actions-row">
                 <button id="generateCadSheetBtn" class="btn">Generate CAD Drawing Sheet</button>
                 <button id="proceedTo3dBtn" class="btn warning" type="button">Proceed to 3D</button>
-                <a id="openCadSheetLink" class="btn secondary" href="#" target="_blank" rel="noopener" hidden>View Large</a>
                 <a id="downloadCadSheetBtn" class="btn secondary" href="#" download="cad_drawing_sheet.png" hidden>Download Drawing</a>
               </div>
               <div class="cad-sheet-stage">
@@ -208,10 +207,31 @@
 
     <div id="cadPromptModal" class="modal" hidden>
       <div class="modal-card modal-card-lg">
-        <h3>CAD Drawing Prompt Settings</h3>
-        <textarea id="cadPromptModalInput" rows="18"></textarea>
+        <h3>Edit Spec</h3>
+        <div class="spec-form-grid">
+          <label for="specTargetVolume">target_volume_ml</label>
+          <input id="specTargetVolume" type="text" placeholder="e.g., 50" />
+
+          <label for="specOverallHeight">Soverall_height_mm</label>
+          <input id="specOverallHeight" type="text" placeholder="e.g., 68" />
+
+          <label for="specOuterDiameter">outer_diameter_mm</label>
+          <input id="specOuterDiameter" type="text" placeholder="e.g., 52" />
+
+          <label for="specOuterWidth">outer_width_mm</label>
+          <input id="specOuterWidth" type="text" placeholder="e.g., 48" />
+
+          <label for="specOuterDepth">outer_depth_mm</label>
+          <input id="specOuterDepth" type="text" placeholder="e.g., 48" />
+
+          <label for="specWallThickness">wall_thickness_mm</label>
+          <input id="specWallThickness" type="text" placeholder="e.g., 2.2" />
+
+          <label for="specBaseThickness">base_thickness_mm</label>
+          <input id="specBaseThickness" type="text" placeholder="e.g., 3.0" />
+        </div>
         <div class="actions-row">
-          <button id="saveCadPromptModalBtn" class="btn tiny" type="button">Save Prompt</button>
+          <button id="saveCadPromptModalBtn" class="btn tiny" type="button">Save Spec</button>
           <button id="closeCadPromptModalBtn" class="btn tiny secondary" type="button">Close</button>
         </div>
       </div>

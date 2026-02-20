@@ -12,7 +12,7 @@ const BASELINE_DECISION_MESSAGES = new Set([
   "No close baseline found. Creating a new concept.",
 ]);
 const DEFAULT_CAD_SHEET_PROMPT =
-  "Use the provided product image as reference and generate a professional mechanical CAD engineering drawing sheet of the object. Analyze the geometry, proportions, symmetry, and structure from the image and convert it into a precise technical drafting layout suitable for manufacturing documentation.\n\nDrawing Requirements:\n1. Generate complete orthographic projections:\n- Front View\n- Top View\n- Right Side View\n- Sectional View (cut through central axis if applicable)\n- Exploded View (if the object has multiple components)\n2. Include engineering detailing:\n- Centerlines\n- Hidden lines\n- Dimension lines with arrowheads\n- Proper scaling\n- Units in millimeters\n- Thread representation (if applicable)\n- Wall thickness callouts (if hollow)\n- Material labels (estimated from visual cues)\n- Standard tolerances (±0.1 mm unless otherwise required)\n3. Layout Specifications:\n- A3 engineering sheet format\n- Third-angle projection\n- Title block at bottom-right\n- Drawing name: Based on detected object\n- Scale: 1:1 (or appropriate estimated scale)\n- Clean mechanical drafting style\n- Black/gray linework\n- White or beige blueprint-style background\n- Proper borders and alignment\n4. If exact dimensions are not visible:\n- Infer realistic proportional dimensions based on object type\n- Maintain accurate relative proportions\n- Clearly mark inferred values as estimated\n5. Output:\n- High-resolution engineering drawing sheet\n- Manufacturing-ready visual format\n- Clean CAD blueprint style (not artistic sketch)\nStyle Reference: Industrial mechanical drafting / technical blueprint / SolidWorks drawing sheet style.";
+  "You are generating a technical mechanical CAD drawing sheet.\n\nUse the provided product image as geometry reference only.\nDo NOT recreate the photo.\nConvert the object into a formal engineering drawing sheet.\n\nSHEET FORMAT (STRICT):\nA3 landscape (420mm × 297mm)\nAspect ratio locked\n20mm outer border\nWhite background\nBlack thin drafting lines only\nEntire sheet must be fully visible\nOrthographic straight camera\nNo perspective\nNo zoom\nNo cropping\n\nLAYOUT (DO NOT CHANGE):\n\nTop Row:\nLeft: Front View\nCenter: Right Side View\nRight: Exploded View\n\nBottom Row:\nLeft: Top View\nCenter: Section A-A (vertical center cut)\nRight: Isometric View\n\nViews must stay inside their grid areas.\nNo overlapping.\nNo dynamic repositioning.\n\nENGINEERING DETAILS:\n• Centerlines\n• Hidden lines\n• Dimension lines with arrowheads\n• Units in millimeters\n• Wall thickness callouts if hollow\n• Thread representation if applicable\n• Material labels inferred from image\n• Standard tolerance ±0.1 mm\n• Third-angle projection symbol\n• Title block bottom-right\n• Scale 1:1\n\nIMPORTANT:\nLayout must remain fixed.\nOnly geometry changes per object.\nThe entire A3 sheet must be visible inside the image frame.";
 localStorage.setItem("packDesignSession", state.sessionId);
 state.apiKey = localStorage.getItem(`straiveUserApiKey:${state.sessionId}`) || "";
 
@@ -62,12 +62,17 @@ const el = {
   cadSheetPrompt: document.getElementById("cadSheetPrompt"),
   openCadPromptModalBtn: document.getElementById("openCadPromptModalBtn"),
   cadPromptModal: document.getElementById("cadPromptModal"),
-  cadPromptModalInput: document.getElementById("cadPromptModalInput"),
+  specTargetVolume: document.getElementById("specTargetVolume"),
+  specOverallHeight: document.getElementById("specOverallHeight"),
+  specOuterDiameter: document.getElementById("specOuterDiameter"),
+  specOuterWidth: document.getElementById("specOuterWidth"),
+  specOuterDepth: document.getElementById("specOuterDepth"),
+  specWallThickness: document.getElementById("specWallThickness"),
+  specBaseThickness: document.getElementById("specBaseThickness"),
   saveCadPromptModalBtn: document.getElementById("saveCadPromptModalBtn"),
   closeCadPromptModalBtn: document.getElementById("closeCadPromptModalBtn"),
   generateCadSheetBtn: document.getElementById("generateCadSheetBtn"),
   proceedTo3dBtn: document.getElementById("proceedTo3dBtn"),
-  openCadSheetLink: document.getElementById("openCadSheetLink"),
   downloadCadSheetBtn: document.getElementById("downloadCadSheetBtn"),
   cadSheetProgress: document.getElementById("cadSheetProgress"),
   cadSheetProgressText: document.getElementById("cadSheetProgressText"),
@@ -97,6 +102,15 @@ let operationInFlight = false;
 let baselineLoadingInProgress = false;
 let indexProgressTimer = null;
 let indexProgressStartTs = 0;
+const cadSpecState = {
+  target_volume_ml: "",
+  Soverall_height_mm: "",
+  outer_diameter_mm: "",
+  outer_width_mm: "",
+  outer_depth_mm: "",
+  wall_thickness_mm: "",
+  base_thickness_mm: "",
+};
 const activeScreenStorageKey = `packDesignActiveScreen:${state.sessionId}`;
 const storedActiveScreen = Number(sessionStorage.getItem(activeScreenStorageKey) || "1");
 if ([1, 2, 3, 4, 5].includes(storedActiveScreen)) {
@@ -232,9 +246,7 @@ function renderCadSheetPreview(src) {
     el.cadSheetPreview.hidden = true;
     el.cadSheetPreview.removeAttribute("src");
     el.cadSheetPlaceholder.hidden = false;
-    el.openCadSheetLink.hidden = true;
     el.downloadCadSheetBtn.hidden = true;
-    el.openCadSheetLink.removeAttribute("href");
     el.downloadCadSheetBtn.removeAttribute("href");
     return;
   }
@@ -242,10 +254,36 @@ function renderCadSheetPreview(src) {
   el.cadSheetPreview.src = normalized;
   el.cadSheetPreview.hidden = false;
   el.cadSheetPlaceholder.hidden = true;
-  el.openCadSheetLink.href = normalized;
   el.downloadCadSheetBtn.href = normalized;
-  el.openCadSheetLink.hidden = false;
   el.downloadCadSheetBtn.hidden = false;
+}
+
+function buildCadPromptFromSpec(spec) {
+  const provided = Object.entries(spec).filter(([, v]) => String(v || "").trim() !== "");
+  if (!provided.length) return DEFAULT_CAD_SHEET_PROMPT;
+  const lines = provided.map(([k, v]) => `"${k}": "${String(v).trim()}"`);
+  return `${DEFAULT_CAD_SHEET_PROMPT}\n\nUse these provided engineering inputs if applicable; if not provided, infer from image:\n${lines.join("\n")}`;
+}
+
+function syncCadSpecFormFromState() {
+  el.specTargetVolume.value = cadSpecState.target_volume_ml || "";
+  el.specOverallHeight.value = cadSpecState.Soverall_height_mm || "";
+  el.specOuterDiameter.value = cadSpecState.outer_diameter_mm || "";
+  el.specOuterWidth.value = cadSpecState.outer_width_mm || "";
+  el.specOuterDepth.value = cadSpecState.outer_depth_mm || "";
+  el.specWallThickness.value = cadSpecState.wall_thickness_mm || "";
+  el.specBaseThickness.value = cadSpecState.base_thickness_mm || "";
+}
+
+function captureCadSpecFormToState() {
+  cadSpecState.target_volume_ml = (el.specTargetVolume.value || "").trim();
+  cadSpecState.Soverall_height_mm = (el.specOverallHeight.value || "").trim();
+  cadSpecState.outer_diameter_mm = (el.specOuterDiameter.value || "").trim();
+  cadSpecState.outer_width_mm = (el.specOuterWidth.value || "").trim();
+  cadSpecState.outer_depth_mm = (el.specOuterDepth.value || "").trim();
+  cadSpecState.wall_thickness_mm = (el.specWallThickness.value || "").trim();
+  cadSpecState.base_thickness_mm = (el.specBaseThickness.value || "").trim();
+  el.cadSheetPrompt.value = buildCadPromptFromSpec(cadSpecState);
 }
 
 function addMessage(role, content) {
@@ -569,8 +607,7 @@ function updateFromSession(s) {
     el.cadApprovalStatus.textContent = "No approved version yet.";
   }
   renderApprovedImage(s);
-  el.cadSheetPrompt.value = s.cad_sheet_prompt || DEFAULT_CAD_SHEET_PROMPT;
-  el.cadPromptModalInput.value = el.cadSheetPrompt.value;
+  el.cadSheetPrompt.value = s.cad_sheet_prompt || buildCadPromptFromSpec(cadSpecState);
   renderCadSheetPreview(s.cad_sheet_image_url_or_base64);
 
   el.threeDText.textContent = s.preview_3d_file
@@ -1011,14 +1048,14 @@ el.approveCurrentForCadBtn.addEventListener("click", async () => {
 });
 
 el.openCadPromptModalBtn.addEventListener("click", () => {
-  el.cadPromptModalInput.value = el.cadSheetPrompt.value || DEFAULT_CAD_SHEET_PROMPT;
+  syncCadSpecFormFromState();
   el.cadPromptModal.hidden = false;
 });
 
 el.saveCadPromptModalBtn.addEventListener("click", () => {
-  el.cadSheetPrompt.value = (el.cadPromptModalInput.value || "").trim() || DEFAULT_CAD_SHEET_PROMPT;
+  captureCadSpecFormToState();
   el.cadPromptModal.hidden = true;
-  addMessage("system", "CAD drawing prompt updated.");
+  addMessage("system", "CAD spec updated.");
 });
 
 el.closeCadPromptModalBtn.addEventListener("click", () => {
