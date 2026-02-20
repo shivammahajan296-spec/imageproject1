@@ -34,8 +34,9 @@
       <nav class="screen-tabs">
         <button id="tab1" class="tab active" type="button">1. Requirements & Baseline</button>
         <button id="tab2" class="tab" type="button">2. Edit Studio</button>
-        <button id="tab3" class="tab" type="button">3. Approve & 3D</button>
-        <button id="tab4" class="tab" type="button">4. Assets DB</button>
+        <button id="tab3" class="tab" type="button">3. CAD Diagram</button>
+        <button id="tab4" class="tab" type="button">4. Approve & 3D</button>
+        <button id="tab5" class="tab" type="button">5. Assets DB</button>
       </nav>
 
       <main>
@@ -115,17 +116,36 @@
         <section id="screen3" class="screen">
           <div class="two-col">
             <div class="card">
-              <h2>Approval</h2>
-              <p id="approvalStatus">No version approved yet.</p>
-              <img id="approvedImagePreview" class="candidate-thumb" alt="Approved version preview" src="" hidden />
-              <label for="cadSheetPrompt" class="label">CAD File Image Prompt</label>
-              <textarea id="cadSheetPrompt" rows="8" placeholder="CAD drawing prompt..."></textarea>
+              <h2>Approved Source</h2>
+              <p id="cadApprovalStatus">No approved version yet.</p>
+              <img id="cadApprovedImagePreview" class="candidate-thumb" alt="Approved version preview" src="" hidden />
+              <button id="approveCurrentForCadBtn" class="btn secondary">Approve Current Image</button>
+            </div>
+            <div class="card">
+              <div class="actions-row" style="margin-top: 0;">
+                <h2 style="margin: 0; flex: 1;">Generate CAD File</h2>
+                <button id="openCadPromptModalBtn" class="btn secondary tiny" type="button">Settings</button>
+              </div>
               <div id="cadSheetProgress" class="op-progress" hidden>
                 <div id="cadSheetProgressText" class="op-progress-text">Generating CAD drawing sheet...</div>
                 <div class="op-progress-bar"><span></span></div>
               </div>
-              <button id="generateCadSheetBtn" class="btn">Generate CAD Drawing Sheet</button>
+              <div class="actions-row">
+                <button id="generateCadSheetBtn" class="btn">Generate CAD Drawing Sheet</button>
+                <button id="proceedTo3dBtn" class="btn warning" type="button">Proceed to 3D</button>
+              </div>
               <img id="cadSheetPreview" class="candidate-thumb" alt="CAD drawing sheet preview" src="" hidden />
+              <textarea id="cadSheetPrompt" rows="6" placeholder="CAD drawing prompt..." hidden></textarea>
+            </div>
+          </div>
+        </section>
+
+        <section id="screen4" class="screen">
+          <div class="two-col">
+            <div class="card">
+              <h2>Approval & 3D</h2>
+              <p id="approvalStatus">No version approved yet.</p>
+              <img id="approvedImagePreview" class="candidate-thumb" alt="Approved version preview" src="" hidden />
               <div id="preview3dProgress" class="op-progress" hidden>
                 <div id="preview3dProgressText" class="op-progress-text">Generating 3D preview...</div>
                 <div class="op-progress-bar"><span></span></div>
@@ -150,7 +170,7 @@
           </div>
         </section>
 
-        <section id="screen4" class="screen">
+        <section id="screen5" class="screen">
           <div class="card">
             <h2>Asset Database</h2>
             <div class="actions-row">
@@ -177,6 +197,17 @@
           <button id="saveKeyPopupBtn" class="btn tiny" type="button">Save Key</button>
           <button id="clearKeyPopupBtn" class="btn tiny secondary" type="button">Clear</button>
           <button id="closeKeyModalBtn" class="btn tiny secondary" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="cadPromptModal" class="modal" hidden>
+      <div class="modal-card modal-card-lg">
+        <h3>CAD Drawing Prompt Settings</h3>
+        <textarea id="cadPromptModalInput" rows="18"></textarea>
+        <div class="actions-row">
+          <button id="saveCadPromptModalBtn" class="btn tiny" type="button">Save Prompt</button>
+          <button id="closeCadPromptModalBtn" class="btn tiny secondary" type="button">Close</button>
         </div>
       </div>
     </div>

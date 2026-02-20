@@ -22,6 +22,7 @@ const el = {
   tab2: document.getElementById("tab2"),
   tab3: document.getElementById("tab3"),
   tab4: document.getElementById("tab4"),
+  tab5: document.getElementById("tab5"),
   openKeyModalBtn: document.getElementById("openKeyModalBtn"),
   keyStateBadge: document.getElementById("keyStateBadge"),
   keyModal: document.getElementById("keyModal"),
@@ -33,6 +34,7 @@ const el = {
   screen2: document.getElementById("screen2"),
   screen3: document.getElementById("screen3"),
   screen4: document.getElementById("screen4"),
+  screen5: document.getElementById("screen5"),
   messages: document.getElementById("messages"),
   chatForm: document.getElementById("chatForm"),
   chatInput: document.getElementById("chatInput"),
@@ -54,8 +56,17 @@ const el = {
   recList: document.getElementById("recList"),
   opProgress: document.getElementById("opProgress"),
   opProgressText: document.getElementById("opProgressText"),
+  cadApprovalStatus: document.getElementById("cadApprovalStatus"),
+  cadApprovedImagePreview: document.getElementById("cadApprovedImagePreview"),
+  approveCurrentForCadBtn: document.getElementById("approveCurrentForCadBtn"),
   cadSheetPrompt: document.getElementById("cadSheetPrompt"),
+  openCadPromptModalBtn: document.getElementById("openCadPromptModalBtn"),
+  cadPromptModal: document.getElementById("cadPromptModal"),
+  cadPromptModalInput: document.getElementById("cadPromptModalInput"),
+  saveCadPromptModalBtn: document.getElementById("saveCadPromptModalBtn"),
+  closeCadPromptModalBtn: document.getElementById("closeCadPromptModalBtn"),
   generateCadSheetBtn: document.getElementById("generateCadSheetBtn"),
+  proceedTo3dBtn: document.getElementById("proceedTo3dBtn"),
   cadSheetProgress: document.getElementById("cadSheetProgress"),
   cadSheetProgressText: document.getElementById("cadSheetProgressText"),
   cadSheetPreview: document.getElementById("cadSheetPreview"),
@@ -85,7 +96,7 @@ let indexProgressTimer = null;
 let indexProgressStartTs = 0;
 const activeScreenStorageKey = `packDesignActiveScreen:${state.sessionId}`;
 const storedActiveScreen = Number(sessionStorage.getItem(activeScreenStorageKey) || "1");
-if ([1, 2, 3, 4].includes(storedActiveScreen)) {
+if ([1, 2, 3, 4, 5].includes(storedActiveScreen)) {
   state.activeScreen = storedActiveScreen;
 }
 
@@ -163,15 +174,19 @@ function applyActionAvailability() {
   const s = state.session;
   if (!s) return;
   const hasImages = Boolean(s.images && s.images.length);
+  const canApproveCurrent = hasImages && !operationInFlight;
   const canGenerate2D = s.step >= 3 && !hasImages;
   const canGenerateCadSheet = Boolean(s.approved_image_version && !operationInFlight);
+  const canProceedTo3D = Boolean(s.cad_sheet_image_url_or_base64);
   const canGenerate3D = Boolean(s.approved_image_version && !operationInFlight);
 
   el.generate2dBtn.disabled = operationInFlight || !canGenerate2D;
   // Keep Run Edit clickable so click handler can always provide deterministic feedback.
   el.applyManualBtn.disabled = false;
   el.applyManualBtn.classList.toggle("pseudo-disabled", !canRunEditNow());
+  el.approveCurrentForCadBtn.disabled = !canApproveCurrent;
   el.generateCadSheetBtn.disabled = !canGenerateCadSheet;
+  el.proceedTo3dBtn.disabled = !canProceedTo3D;
   el.generate3dPreviewBtn.disabled = !canGenerate3D;
 }
 
@@ -179,15 +194,20 @@ function renderApprovedImage(sessionState) {
   const approvedVersion = sessionState.approved_image_version;
   if (!approvedVersion || !Array.isArray(sessionState.images)) {
     el.approvedImagePreview.hidden = true;
+    el.cadApprovedImagePreview.hidden = true;
     return;
   }
   const match = sessionState.images.find((i) => i.version === approvedVersion);
   if (!match) {
     el.approvedImagePreview.hidden = true;
+    el.cadApprovedImagePreview.hidden = true;
     return;
   }
-  el.approvedImagePreview.src = normalizeImageSource(match.image_url_or_base64);
+  const src = normalizeImageSource(match.image_url_or_base64);
+  el.approvedImagePreview.src = src;
+  el.cadApprovedImagePreview.src = src;
   el.approvedImagePreview.hidden = false;
+  el.cadApprovedImagePreview.hidden = false;
 }
 
 function render3DViewer(previewFile) {
@@ -281,6 +301,16 @@ async function approveVersion(img) {
   setActiveScreen(3);
 }
 
+async function approveCurrentForCad() {
+  const images = state.session?.images || [];
+  if (!images.length) {
+    addMessage("system", "No image available to approve.");
+    return;
+  }
+  const latest = images[images.length - 1];
+  await approveVersion(latest);
+}
+
 function renderBaselineMatch(match) {
   if (!match || !match.asset_rel_path) {
     el.baselineMatch.hidden = true;
@@ -366,15 +396,16 @@ async function adoptBaselineCandidate(match) {
 function setActiveScreen(screenNumber) {
   state.activeScreen = screenNumber;
   sessionStorage.setItem(activeScreenStorageKey, String(screenNumber));
-  [el.tab1, el.tab2, el.tab3, el.tab4].forEach((tab, i) => tab.classList.toggle("active", i + 1 === screenNumber));
-  [el.screen1, el.screen2, el.screen3, el.screen4].forEach((screen, i) => screen.classList.toggle("active", i + 1 === screenNumber));
+  [el.tab1, el.tab2, el.tab3, el.tab4, el.tab5].forEach((tab, i) => tab.classList.toggle("active", i + 1 === screenNumber));
+  [el.screen1, el.screen2, el.screen3, el.screen4, el.screen5].forEach((screen, i) => screen.classList.toggle("active", i + 1 === screenNumber));
 }
 
-function computeAllowedScreen(step, hasBaselineMatch = false) {
+function computeAllowedScreen(step, hasBaselineMatch = false, hasImages = false, hasApproved = false) {
   if (step === 3 && hasBaselineMatch) return 2;
   if (step <= 3) return 1;
-  if (step <= 5) return 2;
-  return 3;
+  if (!hasImages) return 2;
+  if (!hasApproved) return 3;
+  return 4;
 }
 
 function renderAssetCatalog(items) {
@@ -497,6 +528,8 @@ function updateFromSession(s) {
     renderBaselineMatch(s.baseline_asset);
   }
   const hasBaselineMatch = Boolean((s.baseline_matches || []).length);
+  const hasImages = Boolean(s.images && s.images.length);
+  const hasApproved = Boolean(s.approved_image_version);
   el.baselineSkipBtn.hidden = !(s.step >= 3 && !s.images?.length);
   el.continueBaselineBtn.hidden = !(s.step >= 3 && !s.images?.length && hasBaselineMatch);
 
@@ -516,11 +549,14 @@ function updateFromSession(s) {
     el.approvalStatus.textContent = "A design lock state is present.";
   } else if (s.approved_image_version) {
     el.approvalStatus.textContent = `Approved version: v${s.approved_image_version}`;
+    el.cadApprovalStatus.textContent = `Approved version: v${s.approved_image_version}`;
   } else {
     el.approvalStatus.textContent = "No version approved yet.";
+    el.cadApprovalStatus.textContent = "No approved version yet.";
   }
   renderApprovedImage(s);
   el.cadSheetPrompt.value = s.cad_sheet_prompt || DEFAULT_CAD_SHEET_PROMPT;
+  el.cadPromptModalInput.value = el.cadSheetPrompt.value;
   renderCadSheetPreview(s.cad_sheet_image_url_or_base64);
 
   el.threeDText.textContent = s.preview_3d_file
@@ -532,10 +568,12 @@ function updateFromSession(s) {
   }
   render3DViewer(s.preview_3d_file);
 
-  const allowed = computeAllowedScreen(s.step, hasBaselineMatch);
+  const allowed = computeAllowedScreen(s.step, hasBaselineMatch, hasImages, hasApproved);
   el.tab2.disabled = allowed < 2;
   el.tab3.disabled = allowed < 3;
-  const nextScreen = state.activeScreen === 4 ? 4 : Math.min(state.activeScreen, allowed);
+  el.tab4.disabled = allowed < 4;
+  el.tab5.disabled = false;
+  const nextScreen = state.activeScreen === 5 ? 5 : Math.min(state.activeScreen, allowed);
   setActiveScreen(nextScreen || allowed);
 }
 
@@ -863,6 +901,13 @@ el.generateCadSheetBtn.addEventListener("click", async () => {
     addMessage("system", err.message);
   }
 });
+el.proceedTo3dBtn.addEventListener("click", () => {
+  if (el.proceedTo3dBtn.disabled) {
+    addMessage("system", "Generate CAD drawing sheet first, then proceed to 3D.");
+    return;
+  }
+  setActiveScreen(4);
+});
 el.indexAssetsBtn.addEventListener("click", async () => {
   try {
     await indexAssetMetadata({ forceReindex: false, source: "Index Asset Metadata" });
@@ -900,7 +945,11 @@ el.tab3.addEventListener("click", () => {
   if (!el.tab3.disabled) setActiveScreen(3);
 });
 el.tab4.addEventListener("click", async () => {
+  if (el.tab4.disabled) return;
   setActiveScreen(4);
+});
+el.tab5.addEventListener("click", async () => {
+  setActiveScreen(5);
   try {
     await refreshAssetCatalog();
   } catch (err) {
@@ -936,6 +985,35 @@ el.refreshCatalogBtn.addEventListener("click", async () => {
     await refreshAssetCatalog();
   } catch (err) {
     addMessage("system", err.message);
+  }
+});
+
+el.approveCurrentForCadBtn.addEventListener("click", async () => {
+  try {
+    await approveCurrentForCad();
+  } catch (err) {
+    addMessage("system", err.message);
+  }
+});
+
+el.openCadPromptModalBtn.addEventListener("click", () => {
+  el.cadPromptModalInput.value = el.cadSheetPrompt.value || DEFAULT_CAD_SHEET_PROMPT;
+  el.cadPromptModal.hidden = false;
+});
+
+el.saveCadPromptModalBtn.addEventListener("click", () => {
+  el.cadSheetPrompt.value = (el.cadPromptModalInput.value || "").trim() || DEFAULT_CAD_SHEET_PROMPT;
+  el.cadPromptModal.hidden = true;
+  addMessage("system", "CAD drawing prompt updated.");
+});
+
+el.closeCadPromptModalBtn.addEventListener("click", () => {
+  el.cadPromptModal.hidden = true;
+});
+
+el.cadPromptModal.addEventListener("click", (e) => {
+  if (e.target === el.cadPromptModal) {
+    el.cadPromptModal.hidden = true;
   }
 });
 

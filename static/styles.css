@@ -280,16 +280,21 @@ body {
   border-radius: 12px;
   padding: 12px;
 }
+.modal-card-lg {
+  width: min(94vw, 960px);
+}
 .modal-card h3 {
   margin: 0 0 8px;
   font-size: 1rem;
 }
-.modal-card input {
+.modal-card input,
+.modal-card textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
   font-size: 0.92rem;
+  font-family: inherit;
 }
 
 .list-grid { display: grid; gap: 8px; }
