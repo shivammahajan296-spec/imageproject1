@@ -444,16 +444,24 @@ function render3DViewer(previewFile) {
 function renderCadSheetPreview(src) {
   if (!src) {
     el.cadSheetPreview.hidden = true;
+    el.cadSheetPreview.style.display = "none";
+    el.cadSheetPreview.onload = null;
     el.cadSheetPreview.removeAttribute("src");
     el.cadSheetPlaceholder.hidden = false;
+    el.cadSheetPlaceholder.style.display = "";
     el.downloadCadSheetBtn.hidden = true;
     el.downloadCadSheetBtn.removeAttribute("href");
     return;
   }
   const normalized = normalizeImageSource(src);
+  el.cadSheetPreview.onload = () => {
+    el.cadSheetPreview.hidden = false;
+    el.cadSheetPreview.style.display = "block";
+    // Ensure placeholder occupies no space after successful image render.
+    el.cadSheetPlaceholder.hidden = true;
+    el.cadSheetPlaceholder.style.display = "none";
+  };
   el.cadSheetPreview.src = normalized;
-  el.cadSheetPreview.hidden = false;
-  el.cadSheetPlaceholder.hidden = true;
   el.downloadCadSheetBtn.href = normalized;
   el.downloadCadSheetBtn.hidden = false;
 }
