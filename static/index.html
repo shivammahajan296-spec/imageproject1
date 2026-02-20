@@ -14,6 +14,7 @@
           <span>AI-Powered Intelligent Pack Design</span>
         </h1>
         <div class="top-actions">
+          <button id="intelligenceHubBtn" class="btn secondary" type="button">Intelligence Hub</button>
           <div class="logo-slot" aria-label="Company logo">
             <img
               src="/static/images/logo.jpg"
@@ -191,6 +192,109 @@
       </main>
     </div>
 
+    <section id="intelligenceHubPage" class="hub-page" hidden>
+      <header class="hub-topbar">
+        <div>
+          <h1 class="hub-title">
+            <span class="title-ai-orb" aria-hidden="true"></span>
+            <span>AI Product Intelligence Hub</span>
+          </h1>
+          <p class="hub-subtitle">Strategic Insights Powered by AI</p>
+        </div>
+        <div class="actions-row hub-actions">
+          <button id="runIntelBtn" class="btn">Run AI Intelligence Analysis</button>
+          <button id="closeIntelBtn" class="btn secondary" type="button">Back to Workflow</button>
+        </div>
+      </header>
+
+      <div id="intelLoading" class="intel-loading" hidden>
+        <div class="intel-loader-bar"></div>
+        <p>Generating strategic intelligence...</p>
+      </div>
+
+      <main id="intelContent" class="hub-content" hidden>
+        <section class="hub-module">
+          <button class="hub-module-head" type="button" data-target="costModuleBody">
+            <span>💰 Cost Optimization Suite</span>
+            <span class="hub-toggle">Collapse</span>
+          </button>
+          <div id="costModuleBody" class="hub-module-body">
+            <div class="hub-grid-4">
+              <div class="hub-kpi">
+                <h4>Estimated Unit Cost</h4>
+                <strong id="costEstimatedUnit">$8.40</strong>
+              </div>
+              <div class="hub-kpi">
+                <h4>Target Cost</h4>
+                <strong id="costTarget">$7.00</strong>
+              </div>
+              <div class="hub-kpi">
+                <h4>Cost Gap</h4>
+                <strong id="costGap"></strong>
+              </div>
+              <div class="hub-kpi">
+                <h4>MOQ Assumption</h4>
+                <strong id="costMoq">25,000 units</strong>
+              </div>
+            </div>
+            <div id="costBreakdownGrid" class="hub-grid-4"></div>
+            <div class="hub-grid-2">
+              <div class="hub-card"><canvas id="costPieChart"></canvas></div>
+              <div class="hub-card"><canvas id="costSavingsChart"></canvas></div>
+            </div>
+            <h4 class="hub-section-title">AI Recommendations</h4>
+            <div id="costRecommendations" class="hub-grid-3"></div>
+          </div>
+        </section>
+
+        <section class="hub-module">
+          <button class="hub-module-head" type="button" data-target="analyticsModuleBody">
+            <span>📊 Strategic Analytics Dashboard</span>
+            <span class="hub-toggle">Collapse</span>
+          </button>
+          <div id="analyticsModuleBody" class="hub-module-body">
+            <div id="analyticsKpis" class="hub-grid-6"></div>
+            <div class="hub-grid-2">
+              <div class="hub-card"><canvas id="demandForecastChart"></canvas></div>
+              <div class="hub-card"><canvas id="costMarginChart"></canvas></div>
+              <div class="hub-card"><canvas id="revenueRegionChart"></canvas></div>
+              <div class="hub-card"><canvas id="marketGrowthChart"></canvas></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="hub-module">
+          <button class="hub-module-head" type="button" data-target="sentimentModuleBody">
+            <span>❤️ Sentiment & Market Intelligence</span>
+            <span class="hub-toggle">Collapse</span>
+          </button>
+          <div id="sentimentModuleBody" class="hub-module-body">
+            <div class="hub-grid-2">
+              <div class="hub-card">
+                <h4>Mock Asset Review Panel</h4>
+                <ul id="mockReviews" class="hub-review-list"></ul>
+                <div class="hub-grid-3">
+                  <div class="hub-kpi"><h4>Sentiment</h4><strong id="sentimentScore">72% Positive</strong></div>
+                  <div class="hub-kpi"><h4>Engagement</h4><strong id="engagementScore">8.2 / 10</strong></div>
+                  <div class="hub-kpi"><h4>Adoption</h4><strong id="adoptionLikelihood">High</strong></div>
+                </div>
+                <div class="sentiment-bar">
+                  <span class="neg" style="width: 16%;">Negative</span>
+                  <span class="neu" style="width: 24%;">Neutral</span>
+                  <span class="pos" style="width: 60%;">Positive</span>
+                </div>
+              </div>
+              <div class="hub-card">
+                <h4>Social Listening Simulation</h4>
+                <ul id="socialInsights" class="hub-review-list"></ul>
+                <div id="wordCloud" class="word-cloud"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </section>
+
     <div id="keyModal" class="modal" hidden>
       <div class="modal-card">
         <h3>API Key</h3>
@@ -243,6 +347,7 @@
       </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/app.js"></script>
     <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
   </body>

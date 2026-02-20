@@ -13,6 +13,86 @@ const BASELINE_DECISION_MESSAGES = new Set([
 ]);
 const DEFAULT_CAD_SHEET_PROMPT =
   "You are generating a technical mechanical CAD drawing sheet.\n\nUse the provided product image as geometry reference only.\nDo NOT recreate the photo.\nConvert the object into a formal engineering drawing sheet.\n\nSHEET FORMAT (STRICT):\nA3 landscape (420mm × 297mm)\nAspect ratio locked\n20mm outer border\nWhite background\nBlack thin drafting lines only\nEntire sheet must be fully visible\nOrthographic straight camera\nNo perspective\nNo zoom\nNo cropping\n\nLAYOUT (DO NOT CHANGE):\n\nTop Row:\nLeft: Front View\nCenter: Right Side View\nRight: Exploded View\n\nBottom Row:\nLeft: Top View\nCenter: Section A-A (vertical center cut)\nRight: Isometric View\n\nViews must stay inside their grid areas.\nNo overlapping.\nNo dynamic repositioning.\n\nENGINEERING DETAILS:\n• Centerlines\n• Hidden lines\n• Dimension lines with arrowheads\n• Units in millimeters\n• Wall thickness callouts if hollow\n• Thread representation if applicable\n• Material labels inferred from image\n• Standard tolerance ±0.1 mm\n• Third-angle projection symbol\n• Title block bottom-right\n• Scale 1:1\n\nIMPORTANT:\nLayout must remain fixed.\nOnly geometry changes per object.\nThe entire A3 sheet must be visible inside the image frame.\nThe entire sheet must be rendered as a fully visible flat document, centered in the frame with clear white space surrounding all four edges. Absolutely no cropping, zooming, clipping, edge-touching, or partial cutoff is permitted — the full outer border, title block, and all margins must remain completely visible inside the image boundaries.";
+const INTEL_DATA = {
+  cost: {
+    estimatedUnit: 8.4,
+    target: 7.0,
+    moq: 25000,
+    breakdown: [
+      { label: "Material", value: 4.1, pct: 48 },
+      { label: "Manufacturing", value: 2.8, pct: 33 },
+      { label: "Closure", value: 1.2, pct: 14 },
+      { label: "Margin Buffer", value: 0.3, pct: 5 },
+    ],
+    savings: [0, 3.5, 5.1, 7.4, 10.2],
+    recommendations: [
+      {
+        title: "Standardize neck finish tolerance stack",
+        savingsPct: "4.2%",
+        risk: "Low",
+        projectedCost: "$8.05",
+      },
+      {
+        title: "Shift cap resin to high-flow PP copolymer",
+        savingsPct: "6.0%",
+        risk: "Medium",
+        projectedCost: "$7.89",
+      },
+      {
+        title: "Consolidate two molding operations to one tool family",
+        savingsPct: "7.8%",
+        risk: "Medium",
+        projectedCost: "$7.74",
+      },
+      {
+        title: "Optimize wall thickness by ribbing and draft correction",
+        savingsPct: "5.4%",
+        risk: "Low",
+        projectedCost: "$7.95",
+      },
+      {
+        title: "Move to regional secondary supplier for closure insert",
+        savingsPct: "3.1%",
+        risk: "Low",
+        projectedCost: "$8.14",
+      },
+      {
+        title: "Batch decoration with inline QA sampling",
+        savingsPct: "2.7%",
+        risk: "Low",
+        projectedCost: "$8.18",
+      },
+    ],
+  },
+  analytics: {
+    kpis: [
+      ["Projected Annual Demand", "125,000 units"],
+      ["Estimated Margin", "18%"],
+      ["Break-even Volume", "22,500 units"],
+      ["ROI (12 months)", "2.4x"],
+      ["Carbon Efficiency Score", "7.4 / 10"],
+      ["Competitor Benchmark Index", "82 / 100"],
+    ],
+    demand: [8200, 8600, 9100, 9700, 10200, 10800, 11100, 11500, 11900, 12300, 12700, 13200],
+    costVsMargin: { cost: [8.7, 8.5, 8.3, 8.1, 7.9], margin: [14, 15, 16, 17, 18] },
+    revenueRegions: { labels: ["NA", "EU", "APAC", "MEA", "LATAM"], values: [36, 24, 22, 10, 8] },
+    growth: [2.1, 2.4, 2.7, 3.2, 3.5, 3.9, 4.1, 4.5, 4.8, 5.2, 5.6, 6.0],
+  },
+  sentiment: {
+    reviews: [
+      "Premium finish appreciated, but closure feels tight.",
+      "Customers request refillable options.",
+      "Luxury positioning well received among metro buyers.",
+    ],
+    social: [
+      "⬆ Rising interest in sustainable packaging",
+      "⬆ Demand for minimalist aesthetic",
+      "⬆ Increasing price sensitivity in mid-tier segment",
+      "⬇ Declining preference for heavy glass in travel formats",
+    ],
+    cloud: ["sustainable", "minimal", "refillable", "premium", "lightweight", "cost", "ergonomic", "shelf-impact"],
+  },
+};
 localStorage.setItem("packDesignSession", state.sessionId);
 state.apiKey = localStorage.getItem(`straiveUserApiKey:${state.sessionId}`) || "";
 
@@ -24,6 +104,7 @@ const el = {
   tab4: document.getElementById("tab4"),
   tab5: document.getElementById("tab5"),
   openKeyModalBtn: document.getElementById("openKeyModalBtn"),
+  intelligenceHubBtn: document.getElementById("intelligenceHubBtn"),
   keyStateBadge: document.getElementById("keyStateBadge"),
   keyModal: document.getElementById("keyModal"),
   apiKeyPopupInput: document.getElementById("apiKeyPopupInput"),
@@ -97,11 +178,28 @@ const el = {
   refreshCatalogBtn: document.getElementById("refreshCatalogBtn"),
   catalogCount: document.getElementById("catalogCount"),
   assetCatalogList: document.getElementById("assetCatalogList"),
+  intelligenceHubPage: document.getElementById("intelligenceHubPage"),
+  runIntelBtn: document.getElementById("runIntelBtn"),
+  closeIntelBtn: document.getElementById("closeIntelBtn"),
+  intelLoading: document.getElementById("intelLoading"),
+  intelContent: document.getElementById("intelContent"),
+  costEstimatedUnit: document.getElementById("costEstimatedUnit"),
+  costTarget: document.getElementById("costTarget"),
+  costGap: document.getElementById("costGap"),
+  costMoq: document.getElementById("costMoq"),
+  costBreakdownGrid: document.getElementById("costBreakdownGrid"),
+  costRecommendations: document.getElementById("costRecommendations"),
+  analyticsKpis: document.getElementById("analyticsKpis"),
+  mockReviews: document.getElementById("mockReviews"),
+  socialInsights: document.getElementById("socialInsights"),
+  wordCloud: document.getElementById("wordCloud"),
 };
 let operationInFlight = false;
 let baselineLoadingInProgress = false;
 let indexProgressTimer = null;
 let indexProgressStartTs = 0;
+const intelCharts = {};
+let intelGenerated = false;
 const cadSpecState = {
   target_volume_ml: "",
   Soverall_height_mm: "",
@@ -119,6 +217,108 @@ if ([1, 2, 3, 4, 5].includes(storedActiveScreen)) {
 
 function reloadAfterImageUpdate() {
   window.location.reload();
+}
+
+function destroyIntelCharts() {
+  Object.values(intelCharts).forEach((chart) => {
+    if (chart && typeof chart.destroy === "function") chart.destroy();
+  });
+  Object.keys(intelCharts).forEach((k) => {
+    delete intelCharts[k];
+  });
+}
+
+function createChart(id, config) {
+  if (typeof Chart === "undefined") return;
+  const canvas = document.getElementById(id);
+  if (!canvas) return;
+  if (intelCharts[id]) intelCharts[id].destroy();
+  intelCharts[id] = new Chart(canvas, config);
+}
+
+function renderIntelHubData() {
+  const gap = (INTEL_DATA.cost.estimatedUnit - INTEL_DATA.cost.target).toFixed(2);
+  const gapPositive = Number(gap) > 0;
+  el.costEstimatedUnit.textContent = `$${INTEL_DATA.cost.estimatedUnit.toFixed(2)}`;
+  el.costTarget.textContent = `$${INTEL_DATA.cost.target.toFixed(2)}`;
+  el.costGap.innerHTML = `<span class="${gapPositive ? "kpi-bad" : "kpi-good"}">${gapPositive ? "+" : ""}$${gap}</span>`;
+  el.costMoq.textContent = `${INTEL_DATA.cost.moq.toLocaleString()} units`;
+
+  el.costBreakdownGrid.innerHTML = INTEL_DATA.cost.breakdown
+    .map((i) => `<div class="hub-kpi"><h4>${i.label}</h4><strong>$${i.value.toFixed(2)} (${i.pct}%)</strong></div>`)
+    .join("");
+  el.costRecommendations.innerHTML = INTEL_DATA.cost.recommendations
+    .map(
+      (r) => `<div class="rec-card">
+        <h5>${r.title}</h5>
+        <div class="rec-meta">Estimated Savings: ${r.savingsPct}</div>
+        <div class="rec-meta">Risk Level: ${r.risk}</div>
+        <div class="rec-meta">Projected New Cost: ${r.projectedCost}</div>
+        <button class="btn tiny">Apply</button>
+      </div>`,
+    )
+    .join("");
+
+  el.analyticsKpis.innerHTML = INTEL_DATA.analytics.kpis
+    .map((k) => `<div class="hub-kpi"><h4>${k[0]}</h4><strong>${k[1]}</strong></div>`)
+    .join("");
+  el.mockReviews.innerHTML = INTEL_DATA.sentiment.reviews.map((r) => `<li>${r}</li>`).join("");
+  el.socialInsights.innerHTML = INTEL_DATA.sentiment.social.map((r) => `<li>${r}</li>`).join("");
+  el.wordCloud.innerHTML = INTEL_DATA.sentiment.cloud
+    .map((w, idx) => `<span class="word-chip" style="font-size:${0.78 + (idx % 4) * 0.08}rem">${w}</span>`)
+    .join("");
+
+  createChart("costPieChart", {
+    type: "pie",
+    data: {
+      labels: INTEL_DATA.cost.breakdown.map((i) => i.label),
+      datasets: [{ data: INTEL_DATA.cost.breakdown.map((i) => i.value), backgroundColor: ["#F37021", "#9e9e9e", "#ffb67d", "#d7d7d7"] }],
+    },
+    options: { responsive: true, plugins: { legend: { position: "bottom" } } },
+  });
+  createChart("costSavingsChart", {
+    type: "bar",
+    data: {
+      labels: ["Now", "Q1", "Q2", "Q3", "Q4"],
+      datasets: [{ label: "% Savings", data: INTEL_DATA.cost.savings, backgroundColor: "#F37021" }],
+    },
+    options: { responsive: true, scales: { y: { beginAtZero: true } } },
+  });
+  createChart("demandForecastChart", {
+    type: "line",
+    data: {
+      labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+      datasets: [{ label: "Units", data: INTEL_DATA.analytics.demand, borderColor: "#F37021", tension: 0.3, fill: false }],
+    },
+    options: { responsive: true },
+  });
+  createChart("costMarginChart", {
+    type: "bar",
+    data: {
+      labels: ["Baseline", "V1", "V2", "V3", "Target"],
+      datasets: [
+        { label: "Cost ($)", data: INTEL_DATA.analytics.costVsMargin.cost, backgroundColor: "#9e9e9e" },
+        { label: "Margin (%)", data: INTEL_DATA.analytics.costVsMargin.margin, backgroundColor: "#F37021" },
+      ],
+    },
+    options: { responsive: true },
+  });
+  createChart("revenueRegionChart", {
+    type: "pie",
+    data: {
+      labels: INTEL_DATA.analytics.revenueRegions.labels,
+      datasets: [{ data: INTEL_DATA.analytics.revenueRegions.values, backgroundColor: ["#F37021", "#b7b7b7", "#ffbe90", "#8d8d8d", "#f0d1bb"] }],
+    },
+    options: { responsive: true, plugins: { legend: { position: "bottom" } } },
+  });
+  createChart("marketGrowthChart", {
+    type: "line",
+    data: {
+      labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+      datasets: [{ label: "Market Growth %", data: INTEL_DATA.analytics.growth, borderColor: "#F37021", backgroundColor: "rgba(243,112,33,0.18)", fill: true, tension: 0.35 }],
+    },
+    options: { responsive: true },
+  });
 }
 
 function sleep(ms) {
@@ -1068,8 +1268,39 @@ el.cadPromptModal.addEventListener("click", (e) => {
   }
 });
 
+el.intelligenceHubBtn.addEventListener("click", () => {
+  el.intelligenceHubPage.hidden = false;
+});
+
+el.closeIntelBtn.addEventListener("click", () => {
+  el.intelligenceHubPage.hidden = true;
+});
+
+el.runIntelBtn.addEventListener("click", async () => {
+  el.runIntelBtn.disabled = true;
+  el.intelContent.hidden = true;
+  el.intelLoading.hidden = false;
+  await sleep(2000);
+  renderIntelHubData();
+  el.intelLoading.hidden = true;
+  el.intelContent.hidden = false;
+  intelGenerated = true;
+  el.runIntelBtn.disabled = false;
+});
+
+document.querySelectorAll(".hub-module-head").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const section = btn.closest(".hub-module");
+    if (!section) return;
+    section.classList.toggle("collapsed");
+    const toggle = btn.querySelector(".hub-toggle");
+    if (toggle) toggle.textContent = section.classList.contains("collapsed") ? "Expand" : "Collapse";
+  });
+});
+
 (async function init() {
   el.keyModal.hidden = true;
+  el.intelligenceHubPage.hidden = true;
   el.apiKeyPopupInput.value = state.apiKey;
   renderKeyBadge();
   addMessage("system", "Session initialized. Start with packaging requirements.");
