@@ -171,6 +171,7 @@ const el = {
   indexStatusBox: document.getElementById("indexStatusBox"),
   uploadBriefBtn: document.getElementById("uploadBriefBtn"),
   briefFileInput: document.getElementById("briefFileInput"),
+  clearCacheBtn: document.getElementById("clearCacheBtn"),
   clearSessionBtn: document.getElementById("clearSessionBtn"),
   mainPreview: document.getElementById("mainPreview"),
   previewPlaceholder: document.getElementById("previewPlaceholder"),
@@ -1094,6 +1095,11 @@ async function clearSessionState() {
   setActiveScreen(1);
 }
 
+async function clearServerCache() {
+  const res = await apiPost("/api/cache/clear", {});
+  addMessage("system", `${res.message} Removed entries: ${res.removed_files}.`);
+}
+
 async function uploadMarketingBrief(file) {
   if (!file) return;
   if (!file.name.toLowerCase().endsWith(".pdf")) {
@@ -1178,6 +1184,14 @@ el.indexAssetsBtn.addEventListener("click", async () => {
 el.clearSessionBtn.addEventListener("click", async () => {
   try {
     await clearSessionState();
+  } catch (err) {
+    addMessage("system", err.message);
+  }
+});
+
+el.clearCacheBtn.addEventListener("click", async () => {
+  try {
+    await clearServerCache();
   } catch (err) {
     addMessage("system", err.message);
   }

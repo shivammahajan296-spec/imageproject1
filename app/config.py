@@ -13,6 +13,7 @@ class Settings:
     db_path: str
     assets_dir: str
     auto_index_assets: bool
+    cache_dir: str
     triposr_command: str
     triposr_output_dir: str
     log_level: str
@@ -32,6 +33,7 @@ def load_settings() -> Settings:
         db_path=os.getenv("APP_DB_PATH", "app.db"),
         assets_dir=os.getenv("ASSETS_DIR", "assets"),
         auto_index_assets=os.getenv("AUTO_INDEX_ASSETS", "false").lower() == "true",
+        cache_dir=os.getenv("CACHE_DIR", "cache"),
         triposr_command=os.getenv("TRIPOSR_COMMAND", ""),
         triposr_output_dir=os.getenv("TRIPOSR_OUTPUT_DIR", "preview_3d"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),

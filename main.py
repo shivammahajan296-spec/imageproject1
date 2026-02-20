@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import imghdr
+import json
 import logging
 import mimetypes
 import re
@@ -30,6 +32,7 @@ from app.models import (
     BaselineSkipResponse,
     ChatRequest,
     ChatResponse,
+    CacheClearResponse,
     EditRecommendationsResponse,
     BriefUploadResponse,
     CadSheetGenerateRequest,
@@ -61,6 +64,8 @@ from app.workflow import (
 
 settings = load_settings()
 Path(settings.triposr_output_dir).mkdir(parents=True, exist_ok=True)
+CACHE_DIR = Path(settings.cache_dir)
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
 logger = logging.getLogger("pack-design-app")
 
@@ -138,6 +143,51 @@ def _detect_mime_from_bytes(blob: bytes, hinted: str | None = None) -> str:
     if hinted and hinted.startswith("image/"):
         return hinted
     return "image/png"
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_bytes(blob: bytes) -> str:
+    return hashlib.sha256(blob).hexdigest()
+
+
+def _cache_file(kind: str, key: str) -> Path:
+    safe_kind = re.sub(r"[^a-zA-Z0-9._-]", "_", kind)
+    safe_key = re.sub(r"[^a-zA-Z0-9._-]", "_", key)
+    return CACHE_DIR / f"{safe_kind}_{safe_key}.json"
+
+
+def _cache_get(kind: str, key: str) -> dict[str, str] | None:
+    path = _cache_file(kind, key)
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    image_id = str(payload.get("image_id", "")).strip()
+    image_data_url = str(payload.get("image_data_url", "")).strip()
+    if not image_data_url:
+        return None
+    return {"image_id": image_id or f"cached-{kind}-{key[:8]}", "image_data_url": image_data_url}
+
+
+def _cache_put(kind: str, key: str, image_id: str, image_data_url: str) -> None:
+    payload = {"image_id": image_id, "image_data_url": image_data_url}
+    _cache_file(kind, key).write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _cache_clear_all() -> int:
+    removed = 0
+    for p in CACHE_DIR.glob("*.json"):
+        if p.is_file():
+            p.unlink(missing_ok=True)
+            removed += 1
+    return removed
 
 
 async def _resolve_image_bytes(value: str, req_api_key: str | None = None) -> tuple[bytes, str]:
@@ -405,11 +455,19 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
     if state.step < 3:
         raise HTTPException(status_code=400, detail="Workflow has not reached STEP 3.")
 
-    generated = await straive.image_generate(payload.prompt, api_key_override=req_api_key)
+    prompt_key = re.sub(r"\s+", " ", payload.prompt.strip())
+    cache_key = _sha256_text(prompt_key)
+    cached = _cache_get("concept", cache_key)
+    if cached:
+        generated = {"image_id": cached["image_id"], "image_url_or_base64": cached["image_data_url"]}
+    else:
+        generated = await straive.image_generate(payload.prompt, api_key_override=req_api_key)
     version = len(state.images) + 1
     image_data_url, local_path = await _materialize_session_image(
         payload.session_id, version, generated["image_url_or_base64"], req_api_key=req_api_key
     )
+    if not cached:
+        _cache_put("concept", cache_key, generated["image_id"] or str(uuid.uuid4()), image_data_url)
     image = ImageVersion(
         image_id=generated["image_id"] or str(uuid.uuid4()),
         image_url_or_base64=image_data_url,
@@ -462,15 +520,24 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
         else (latest.image_url_or_base64 if latest else payload.image_id)
     )
     latest_ref = _normalize_image_ref_for_edit(latest_ref)
-    try:
-        edited = await straive.image_edit(latest_ref, payload.instruction_prompt, api_key_override=req_api_key)
-    except Exception as exc:
-        logger.error("Image edit failed. session=%s error=%s", payload.session_id, exc)
-        raise HTTPException(status_code=502, detail=f"Image edit failed: {exc}") from exc
+    source_blob, _ = await _resolve_image_bytes(latest_ref, req_api_key=req_api_key)
+    normalized_instruction = re.sub(r"\s+", " ", payload.instruction_prompt.strip())
+    edit_key = _sha256_text(f"{_sha256_bytes(source_blob)}::{normalized_instruction}")
+    cached = _cache_get("edit", edit_key)
+    if cached:
+        edited = {"image_id": cached["image_id"], "image_url_or_base64": cached["image_data_url"]}
+    else:
+        try:
+            edited = await straive.image_edit(latest_ref, payload.instruction_prompt, api_key_override=req_api_key)
+        except Exception as exc:
+            logger.error("Image edit failed. session=%s error=%s", payload.session_id, exc)
+            raise HTTPException(status_code=502, detail=f"Image edit failed: {exc}") from exc
     version = len(state.images) + 1
     image_data_url, local_path = await _materialize_session_image(
         payload.session_id, version, edited["image_url_or_base64"], req_api_key=req_api_key
     )
+    if not cached:
+        _cache_put("edit", edit_key, edited["image_id"] or str(uuid.uuid4()), image_data_url)
     image = ImageVersion(
         image_id=edited["image_id"] or str(uuid.uuid4()),
         image_url_or_base64=image_data_url,
@@ -630,7 +697,14 @@ async def generate_cad_sheet(payload: CadSheetGenerateRequest, request: Request)
     if not Path(input_path).exists():
         raise HTTPException(status_code=404, detail="Approved source image file is missing on disk.")
 
-    edited = await straive.image_edit(input_path, payload.prompt, api_key_override=req_api_key)
+    approved_blob = Path(input_path).read_bytes()
+    normalized_cad_prompt = re.sub(r"\s+", " ", payload.prompt.strip())
+    cad_key = _sha256_text(f"{_sha256_bytes(approved_blob)}::{normalized_cad_prompt}")
+    cached = _cache_get("cadsheet", cad_key)
+    if cached:
+        edited = {"image_id": cached["image_id"], "image_url_or_base64": cached["image_data_url"]}
+    else:
+        edited = await straive.image_edit(input_path, payload.prompt, api_key_override=req_api_key)
     blob, mime_type = await _resolve_image_bytes(edited["image_url_or_base64"], req_api_key=req_api_key)
     ext = mimetypes.guess_extension(mime_type) or ".png"
     sess_dir = SESSION_IMAGE_DIR / _safe_session_key(payload.session_id)
@@ -638,6 +712,8 @@ async def generate_cad_sheet(payload: CadSheetGenerateRequest, request: Request)
     local_path = sess_dir / f"cad_sheet_{uuid.uuid4().hex[:8]}{ext}"
     local_path.write_bytes(blob)
     data_url = f"data:{mime_type};base64,{base64.b64encode(blob).decode('utf-8')}"
+    if not cached:
+        _cache_put("cadsheet", cad_key, edited.get("image_id") or f"cad-sheet-{uuid.uuid4().hex[:8]}", data_url)
 
     state.cad_sheet_prompt = payload.prompt
     state.cad_sheet_image_id = edited.get("image_id") or f"cad-sheet-{uuid.uuid4().hex[:8]}"
@@ -649,6 +725,13 @@ async def generate_cad_sheet(payload: CadSheetGenerateRequest, request: Request)
         image_id=state.cad_sheet_image_id,
         image_url_or_base64=state.cad_sheet_image_url_or_base64,
     )
+
+
+@app.post("/api/cache/clear", response_model=CacheClearResponse)
+async def clear_cache(request: Request) -> CacheClearResponse:
+    limiter.check(request, "cache-clear")
+    removed = _cache_clear_all()
+    return CacheClearResponse(message="Cache cleared.", removed_files=removed)
 
 
 @app.post("/api/baseline/skip", response_model=BaselineSkipResponse)

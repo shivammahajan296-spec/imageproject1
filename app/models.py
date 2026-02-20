@@ -125,6 +125,11 @@ class SessionClearResponse(BaseModel):
     message: str
 
 
+class CacheClearResponse(BaseModel):
+    message: str
+    removed_files: int
+
+
 class AssetCatalogItem(BaseModel):
     asset_rel_path: str
     filename: str
