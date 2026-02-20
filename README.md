@@ -47,7 +47,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
-
+1
 Open: [http://localhost:8000](http://localhost:8000)
 
 Put reusable reference images in:
