@@ -24,7 +24,6 @@ const INTEL_DATA = {
       { label: "Closure", value: 1.2, pct: 14 },
       { label: "Margin Buffer", value: 0.3, pct: 5 },
     ],
-    savings: [0, 3.5, 5.1, 7.4, 10.2],
     recommendations: [
       {
         title: "Standardize neck finish tolerance stack",
@@ -63,20 +62,6 @@ const INTEL_DATA = {
         projectedCost: "$8.18",
       },
     ],
-  },
-  analytics: {
-    kpis: [
-      ["Projected Annual Demand", "125,000 units"],
-      ["Estimated Margin", "18%"],
-      ["Break-even Volume", "22,500 units"],
-      ["ROI (12 months)", "2.4x"],
-      ["Carbon Efficiency Score", "7.4 / 10"],
-      ["Competitor Benchmark Index", "82 / 100"],
-    ],
-    demand: [8200, 8600, 9100, 9700, 10200, 10800, 11100, 11500, 11900, 12300, 12700, 13200],
-    costVsMargin: { cost: [8.7, 8.5, 8.3, 8.1, 7.9], margin: [14, 15, 16, 17, 18] },
-    revenueRegions: { labels: ["NA", "EU", "APAC", "MEA", "LATAM"], values: [36, 24, 22, 10, 8] },
-    growth: [2.1, 2.4, 2.7, 3.2, 3.5, 3.9, 4.1, 4.5, 4.8, 5.2, 5.6, 6.0],
   },
   sentiment: {
     reviews: [
@@ -190,7 +175,6 @@ const el = {
   costMoq: document.getElementById("costMoq"),
   costBreakdownGrid: document.getElementById("costBreakdownGrid"),
   costRecommendations: document.getElementById("costRecommendations"),
-  analyticsKpis: document.getElementById("analyticsKpis"),
   mockReviews: document.getElementById("mockReviews"),
   socialInsights: document.getElementById("socialInsights"),
   wordCloud: document.getElementById("wordCloud"),
@@ -199,7 +183,6 @@ let operationInFlight = false;
 let baselineLoadingInProgress = false;
 let indexProgressTimer = null;
 let indexProgressStartTs = 0;
-const intelCharts = {};
 let intelGenerated = false;
 const cadSpecState = {
   target_volume_ml: "",
@@ -218,23 +201,6 @@ if ([1, 2, 3, 4, 5].includes(storedActiveScreen)) {
 
 function reloadAfterImageUpdate() {
   window.location.reload();
-}
-
-function destroyIntelCharts() {
-  Object.values(intelCharts).forEach((chart) => {
-    if (chart && typeof chart.destroy === "function") chart.destroy();
-  });
-  Object.keys(intelCharts).forEach((k) => {
-    delete intelCharts[k];
-  });
-}
-
-function createChart(id, config) {
-  if (typeof Chart === "undefined") return;
-  const canvas = document.getElementById(id);
-  if (!canvas) return;
-  if (intelCharts[id]) intelCharts[id].destroy();
-  intelCharts[id] = new Chart(canvas, config);
 }
 
 function renderIntelHubData() {
@@ -259,67 +225,11 @@ function renderIntelHubData() {
       </div>`,
     )
     .join("");
-
-  el.analyticsKpis.innerHTML = INTEL_DATA.analytics.kpis
-    .map((k) => `<div class="hub-kpi"><h4>${k[0]}</h4><strong>${k[1]}</strong></div>`)
-    .join("");
   el.mockReviews.innerHTML = INTEL_DATA.sentiment.reviews.map((r) => `<li>${r}</li>`).join("");
   el.socialInsights.innerHTML = INTEL_DATA.sentiment.social.map((r) => `<li>${r}</li>`).join("");
   el.wordCloud.innerHTML = INTEL_DATA.sentiment.cloud
     .map((w, idx) => `<span class="word-chip" style="font-size:${0.78 + (idx % 4) * 0.08}rem">${w}</span>`)
     .join("");
-
-  createChart("costPieChart", {
-    type: "pie",
-    data: {
-      labels: INTEL_DATA.cost.breakdown.map((i) => i.label),
-      datasets: [{ data: INTEL_DATA.cost.breakdown.map((i) => i.value), backgroundColor: ["#F37021", "#9e9e9e", "#ffb67d", "#d7d7d7"] }],
-    },
-    options: { responsive: true, plugins: { legend: { position: "bottom" } } },
-  });
-  createChart("costSavingsChart", {
-    type: "bar",
-    data: {
-      labels: ["Now", "Q1", "Q2", "Q3", "Q4"],
-      datasets: [{ label: "% Savings", data: INTEL_DATA.cost.savings, backgroundColor: "#F37021" }],
-    },
-    options: { responsive: true, scales: { y: { beginAtZero: true } } },
-  });
-  createChart("demandForecastChart", {
-    type: "line",
-    data: {
-      labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-      datasets: [{ label: "Units", data: INTEL_DATA.analytics.demand, borderColor: "#F37021", tension: 0.3, fill: false }],
-    },
-    options: { responsive: true },
-  });
-  createChart("costMarginChart", {
-    type: "bar",
-    data: {
-      labels: ["Baseline", "V1", "V2", "V3", "Target"],
-      datasets: [
-        { label: "Cost ($)", data: INTEL_DATA.analytics.costVsMargin.cost, backgroundColor: "#9e9e9e" },
-        { label: "Margin (%)", data: INTEL_DATA.analytics.costVsMargin.margin, backgroundColor: "#F37021" },
-      ],
-    },
-    options: { responsive: true },
-  });
-  createChart("revenueRegionChart", {
-    type: "pie",
-    data: {
-      labels: INTEL_DATA.analytics.revenueRegions.labels,
-      datasets: [{ data: INTEL_DATA.analytics.revenueRegions.values, backgroundColor: ["#F37021", "#b7b7b7", "#ffbe90", "#8d8d8d", "#f0d1bb"] }],
-    },
-    options: { responsive: true, plugins: { legend: { position: "bottom" } } },
-  });
-  createChart("marketGrowthChart", {
-    type: "line",
-    data: {
-      labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-      datasets: [{ label: "Market Growth %", data: INTEL_DATA.analytics.growth, borderColor: "#F37021", backgroundColor: "rgba(243,112,33,0.18)", fill: true, tension: 0.35 }],
-    },
-    options: { responsive: true },
-  });
 }
 
 function sleep(ms) {
