@@ -203,6 +203,9 @@ body {
   border-radius: 8px;
   background: repeating-linear-gradient(45deg, #f8f8f8, #f8f8f8 10px, #f2f2f2 10px, #f2f2f2 20px);
 }
+.placeholder[hidden] {
+  display: none !important;
+}
 
 .thumbs-card { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .thumbs-card h3 { margin: 0 0 8px; font-size: 0.95rem; }

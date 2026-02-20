@@ -807,7 +807,7 @@ function updateFromSession(s) {
     el.cadApprovalStatus.textContent = "No approved version yet.";
   }
   renderApprovedImage(s);
-  el.cadSheetPrompt.value = s.cad_sheet_prompt || buildCadPromptFromSpec(cadSpecState);
+  el.cadSheetPrompt.value = buildCadPromptFromSpec(cadSpecState);
   renderCadSheetPreview(s.cad_sheet_image_url_or_base64);
 
   el.threeDText.textContent = s.preview_3d_file
