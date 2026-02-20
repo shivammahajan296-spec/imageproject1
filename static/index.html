@@ -114,14 +114,14 @@
         </section>
 
         <section id="screen3" class="screen">
-          <div class="two-col">
-            <div class="card">
+          <div class="two-col cad-two-col">
+            <div class="card cad-source-card">
               <h2>Approved Source</h2>
               <p id="cadApprovalStatus">No approved version yet.</p>
               <img id="cadApprovedImagePreview" class="candidate-thumb" alt="Approved version preview" src="" hidden />
               <button id="approveCurrentForCadBtn" class="btn secondary">Approve Current Image</button>
             </div>
-            <div class="card">
+            <div class="card cad-drawing-card">
               <div class="actions-row" style="margin-top: 0;">
                 <h2 style="margin: 0; flex: 1;">Generate CAD File</h2>
                 <button id="openCadPromptModalBtn" class="btn secondary tiny" type="button">Settings</button>
@@ -133,8 +133,13 @@
               <div class="actions-row">
                 <button id="generateCadSheetBtn" class="btn">Generate CAD Drawing Sheet</button>
                 <button id="proceedTo3dBtn" class="btn warning" type="button">Proceed to 3D</button>
+                <a id="openCadSheetLink" class="btn secondary" href="#" target="_blank" rel="noopener" hidden>View Large</a>
+                <a id="downloadCadSheetBtn" class="btn secondary" href="#" download="cad_drawing_sheet.png" hidden>Download Drawing</a>
               </div>
-              <img id="cadSheetPreview" class="candidate-thumb" alt="CAD drawing sheet preview" src="" hidden />
+              <div class="cad-sheet-stage">
+                <img id="cadSheetPreview" class="cad-sheet-preview" alt="CAD drawing sheet preview" src="" hidden />
+                <div id="cadSheetPlaceholder" class="placeholder cad-sheet-placeholder">CAD drawing will appear here</div>
+              </div>
               <textarea id="cadSheetPrompt" rows="6" placeholder="CAD drawing prompt..." hidden></textarea>
             </div>
           </div>

@@ -67,9 +67,12 @@ const el = {
   closeCadPromptModalBtn: document.getElementById("closeCadPromptModalBtn"),
   generateCadSheetBtn: document.getElementById("generateCadSheetBtn"),
   proceedTo3dBtn: document.getElementById("proceedTo3dBtn"),
+  openCadSheetLink: document.getElementById("openCadSheetLink"),
+  downloadCadSheetBtn: document.getElementById("downloadCadSheetBtn"),
   cadSheetProgress: document.getElementById("cadSheetProgress"),
   cadSheetProgressText: document.getElementById("cadSheetProgressText"),
   cadSheetPreview: document.getElementById("cadSheetPreview"),
+  cadSheetPlaceholder: document.getElementById("cadSheetPlaceholder"),
   generate3dPreviewBtn: document.getElementById("generate3dPreviewBtn"),
   open3dPreviewLink: document.getElementById("open3dPreviewLink"),
   preview3dProgress: document.getElementById("preview3dProgress"),
@@ -228,10 +231,21 @@ function renderCadSheetPreview(src) {
   if (!src) {
     el.cadSheetPreview.hidden = true;
     el.cadSheetPreview.removeAttribute("src");
+    el.cadSheetPlaceholder.hidden = false;
+    el.openCadSheetLink.hidden = true;
+    el.downloadCadSheetBtn.hidden = true;
+    el.openCadSheetLink.removeAttribute("href");
+    el.downloadCadSheetBtn.removeAttribute("href");
     return;
   }
-  el.cadSheetPreview.src = normalizeImageSource(src);
+  const normalized = normalizeImageSource(src);
+  el.cadSheetPreview.src = normalized;
   el.cadSheetPreview.hidden = false;
+  el.cadSheetPlaceholder.hidden = true;
+  el.openCadSheetLink.href = normalized;
+  el.downloadCadSheetBtn.href = normalized;
+  el.openCadSheetLink.hidden = false;
+  el.downloadCadSheetBtn.hidden = false;
 }
 
 function addMessage(role, content) {
