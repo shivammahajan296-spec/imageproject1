@@ -7,6 +7,7 @@ Production-oriented FastAPI + vanilla JS app that enforces a strict packaging-en
 - Backend-only integration with Straive LLM Foundry endpoints.
 - Chat + image generation/edit APIs.
 - LLM-generated CadQuery script + STEP export with server-side cache and in-app STEP viewer.
+- Provider toggle for STEP CAD (`Gemini` / `GPT`) in the Approve & 3D UI.
 - Asset baseline search from local `assets/` images using AI-generated metadata.
 - Session persistence in SQLite.
 - Request validation, rate limiting, redacted logging, CORS.

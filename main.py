@@ -172,6 +172,11 @@ def _sha256_bytes(blob: bytes) -> str:
     return hashlib.sha256(blob).hexdigest()
 
 
+def _normalize_cad_provider(value: str | None) -> str:
+    raw = (value or "").strip().lower()
+    return "gpt" if raw == "gpt" else "gemini"
+
+
 def _cache_file(kind: str, key: str) -> Path:
     safe_kind = re.sub(r"[^a-zA-Z0-9._-]", "_", kind)
     safe_key = re.sub(r"[^a-zA-Z0-9._-]", "_", key)
@@ -399,6 +404,7 @@ def _execute_and_persist_cad_code(state, session_id: str, cad_code: str) -> tupl
 
 def _cache_cadstep_for_state(state, cad_code: str, code_file: str, step_file: str) -> None:
     prompt = (state.cad_model_prompt or "").strip()
+    provider = _normalize_cad_provider(state.cad_model_provider)
     image_path = (state.approved_image_local_path or "").strip()
     if not prompt or not image_path:
         return
@@ -407,7 +413,7 @@ def _cache_cadstep_for_state(state, cad_code: str, code_file: str, step_file: st
         return
     approved_blob = p.read_bytes()
     normalized_prompt = re.sub(r"\s+", " ", prompt)
-    cad_cache_key = _sha256_text(f"{_sha256_bytes(approved_blob)}::{normalized_prompt}")
+    cad_cache_key = _sha256_text(f"{provider}::{_sha256_bytes(approved_blob)}::{normalized_prompt}")
     _cache_json_put(
         "cadstep",
         cad_cache_key,
@@ -415,10 +421,11 @@ def _cache_cadstep_for_state(state, cad_code: str, code_file: str, step_file: st
             "cad_code": cad_code,
             "code_file": code_file,
             "step_file": step_file,
+            "provider": provider,
         },
     )
     # Also persist an image-level cache entry so this approved image always has a STEP cache record.
-    image_only_key = _sha256_bytes(approved_blob)
+    image_only_key = _sha256_text(f"{provider}::{_sha256_bytes(approved_blob)}")
     _cache_json_put(
         "cadstep_image",
         image_only_key,
@@ -427,6 +434,7 @@ def _cache_cadstep_for_state(state, cad_code: str, code_file: str, step_file: st
             "code_file": code_file,
             "step_file": step_file,
             "prompt": prompt,
+            "provider": provider,
         },
     )
 
@@ -646,6 +654,7 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
     state.cad_sheet_image_url_or_base64 = None
     state.cad_sheet_image_local_path = None
     state.cad_model_prompt = None
+    state.cad_model_provider = None
     state.cad_model_code = None
     state.cad_model_last_error = None
     state.cad_model_code_path = None
@@ -714,6 +723,7 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
     state.cad_sheet_image_url_or_base64 = None
     state.cad_sheet_image_local_path = None
     state.cad_model_prompt = None
+    state.cad_model_provider = None
     state.cad_model_code = None
     state.cad_model_last_error = None
     state.cad_model_code_path = None
@@ -760,6 +770,7 @@ async def adopt_baseline(payload: BaselineAdoptRequest, request: Request) -> Ima
     state.cad_sheet_image_url_or_base64 = None
     state.cad_sheet_image_local_path = None
     state.cad_model_prompt = None
+    state.cad_model_provider = None
     state.cad_model_code = None
     state.cad_model_last_error = None
     state.cad_model_code_path = None
@@ -796,6 +807,7 @@ async def approve_version(payload: VersionApproveRequest, request: Request) -> V
     state.cad_sheet_image_url_or_base64 = None
     state.cad_sheet_image_local_path = None
     state.cad_model_prompt = None
+    state.cad_model_provider = None
     state.cad_model_code = None
     state.cad_model_last_error = None
     state.cad_model_code_path = None
@@ -868,14 +880,16 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
 
     approved_blob = source_path.read_bytes()
     approved_mime = _detect_mime_from_bytes(approved_blob, hinted=mimetypes.guess_type(str(source_path))[0])
+    provider = _normalize_cad_provider(payload.provider)
     normalized_prompt = re.sub(r"\s+", " ", payload.prompt.strip())
     state.cad_model_prompt = payload.prompt.strip()
+    state.cad_model_provider = provider
     store.save(state)
-    cad_cache_key = _sha256_text(f"{_sha256_bytes(approved_blob)}::{normalized_prompt}")
+    cad_cache_key = _sha256_text(f"{provider}::{_sha256_bytes(approved_blob)}::{normalized_prompt}")
     cached_payload = _cache_json_get("cadstep", cad_cache_key)
     if not cached_payload:
         # Fallback: reuse latest successful STEP cache for the same approved image.
-        cached_payload = _cache_json_get("cadstep_image", _sha256_bytes(approved_blob))
+        cached_payload = _cache_json_get("cadstep_image", _sha256_text(f"{provider}::{_sha256_bytes(approved_blob)}"))
     if cached_payload:
         code_file_cached = str(cached_payload.get("code_file", "")).strip()
         step_file_cached = str(cached_payload.get("step_file", "")).strip()
@@ -910,6 +924,7 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
         + "- Output a single executable Python script only."
     )
     llm_text = await straive.cad_codegen(
+        provider=provider,
         system_prompt=CAD_LLM_SYSTEM_PROMPT,
         user_message=user_prompt,
         api_key_override=req_api_key,
@@ -943,6 +958,7 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
             "cad_code": cad_code,
             "code_file": code_file,
             "step_file": step_file,
+            "provider": provider,
         },
     )
     state.cad_model_prompt = payload.prompt
@@ -964,6 +980,9 @@ async def run_cad_model_code(payload: CadModelRunCodeRequest, request: Request) 
     limiter.check(request, "cad-model-run-code")
     state = store.get_or_create(payload.session_id)
     cad_code = (payload.cad_code or "").strip()
+    provider = _normalize_cad_provider(payload.provider or state.cad_model_provider)
+    state.cad_model_provider = provider
+    store.save(state)
     if payload.prompt and payload.prompt.strip():
         state.cad_model_prompt = payload.prompt.strip()
         store.save(state)
@@ -1005,6 +1024,9 @@ async def fix_cad_model_code(payload: CadModelFixRequest, request: Request) -> C
     req_api_key = _request_api_key(request)
 
     code = (payload.cad_code or "").strip()
+    provider = _normalize_cad_provider(payload.provider or state.cad_model_provider)
+    state.cad_model_provider = provider
+    store.save(state)
     if payload.prompt and payload.prompt.strip():
         state.cad_model_prompt = payload.prompt.strip()
         store.save(state)
@@ -1026,6 +1048,7 @@ async def fix_cad_model_code(payload: CadModelFixRequest, request: Request) -> C
         f"{code}"
     )
     llm_text = await straive.cad_codegen(
+        provider=provider,
         system_prompt=CAD_FIX_SYSTEM_PROMPT,
         user_message=fix_prompt,
         api_key_override=req_api_key,
@@ -1105,6 +1128,7 @@ async def clear_session(payload: SessionClearRequest, request: Request) -> Sessi
     reset_state.cad_sheet_image_url_or_base64 = None
     reset_state.cad_sheet_image_local_path = None
     reset_state.cad_model_prompt = None
+    reset_state.cad_model_provider = None
     reset_state.cad_model_code = None
     reset_state.cad_model_last_error = None
     reset_state.cad_model_code_path = None

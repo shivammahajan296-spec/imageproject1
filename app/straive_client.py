@@ -72,6 +72,35 @@ class StraiveClient:
 
     async def cad_codegen(
         self,
+        provider: str,
+        system_prompt: str,
+        user_message: str,
+        api_key_override: str | None = None,
+        image_bytes: bytes | None = None,
+        image_mime_type: str | None = None,
+    ) -> str | None:
+        if not (api_key_override or self.settings.straive_api_key):
+            return None
+
+        mode = (provider or "").strip().lower()
+        if mode == "gpt":
+            return await self._cad_codegen_gpt(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                api_key_override=api_key_override,
+                image_bytes=image_bytes,
+                image_mime_type=image_mime_type,
+            )
+        return await self._cad_codegen_gemini(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            api_key_override=api_key_override,
+            image_bytes=image_bytes,
+            image_mime_type=image_mime_type,
+        )
+
+    async def _cad_codegen_gemini(
+        self,
         system_prompt: str,
         user_message: str,
         api_key_override: str | None = None,
@@ -108,6 +137,40 @@ class StraiveClient:
             data = resp.json()
             logger.info("Straive CAD codegen response: %s", self._redact(data))
             return self._extract_vertex_text(data)
+
+    async def _cad_codegen_gpt(
+        self,
+        system_prompt: str,
+        user_message: str,
+        api_key_override: str | None = None,
+        image_bytes: bytes | None = None,
+        image_mime_type: str | None = None,
+    ) -> str | None:
+        user_content: list[dict[str, Any]] = [{"type": "text", "text": user_message}]
+        if image_bytes:
+            mime = image_mime_type or "image/png"
+            img_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            user_content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{img_b64}"}})
+
+        payload = {
+            "model": self.settings.model_name,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content if len(user_content) > 1 else user_message},
+            ],
+            "temperature": 0.2,
+        }
+        logger.info("Straive CAD GPT request: %s", self._redact(payload))
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(
+                self.settings.chat_url,
+                headers=self._headers(api_key_override=api_key_override),
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            logger.info("Straive CAD GPT response: %s", self._redact(data))
+            return self._extract_openai_text(data)
 
     async def image_generate(self, prompt: str, api_key_override: str | None = None) -> dict[str, str]:
         if not (api_key_override or self.settings.straive_api_key):
@@ -477,6 +540,24 @@ class StraiveClient:
             return text or None
         except Exception:
             return None
+
+    @staticmethod
+    def _extract_openai_text(data: dict[str, Any]) -> str | None:
+        try:
+            msg = data.get("choices", [{}])[0].get("message", {})
+            content = msg.get("content")
+            if isinstance(content, str):
+                return content.strip() or None
+            if isinstance(content, list):
+                parts: list[str] = []
+                for part in content:
+                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                        parts.append(part["text"])
+                text = "\n".join(parts).strip()
+                return text or None
+        except Exception:
+            return None
+        return None
 
     @staticmethod
     def _normalize_asset_metadata(data: dict[str, Any], image_path: Path) -> dict[str, Any]:

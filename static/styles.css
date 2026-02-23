@@ -227,6 +227,14 @@ body {
 .btn.warning { background: #a64b00; }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
 .btn.pseudo-disabled { opacity: .55; cursor: not-allowed; }
+.actions-row select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  color: #333;
+  font-size: 0.9rem;
+}
 
 .baseline-match {
   margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: #fffaf5;

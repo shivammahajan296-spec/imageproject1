@@ -157,6 +157,11 @@
               <div class="actions-row">
                 <button id="generateStepCadBtn" class="btn">Generate STEP CAD</button>
                 <button id="stopStepCadBtn" class="btn secondary" type="button" hidden>Stop</button>
+                <label class="label" for="cadProviderSelect" style="margin: 0; align-self: center;">Provider</label>
+                <select id="cadProviderSelect">
+                  <option value="gemini">Gemini</option>
+                  <option value="gpt">GPT</option>
+                </select>
                 <button id="openStepPromptModalBtn" class="btn secondary" type="button">Build CAD Prompt</button>
                 <a id="downloadCadCodeBtn" class="btn secondary" href="#" download="generated_cad.py" hidden>Download CAD Code</a>
                 <a id="downloadStepBtn" class="btn secondary" href="#" download="model.step" hidden>Download STEP</a>

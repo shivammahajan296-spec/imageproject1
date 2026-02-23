@@ -46,6 +46,7 @@ class SessionState(BaseModel):
     cad_sheet_image_url_or_base64: str | None = None
     cad_sheet_image_local_path: str | None = None
     cad_model_prompt: str | None = None
+    cad_model_provider: str | None = None
     cad_model_code: str | None = None
     cad_model_last_error: str | None = None
     cad_model_code_path: str | None = None
@@ -184,12 +185,14 @@ class CadSheetGenerateResponse(BaseModel):
 class CadModelGenerateRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=120)
     prompt: str = Field(min_length=20, max_length=12000)
+    provider: str | None = None
 
 
 class CadModelRunCodeRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=120)
     cad_code: str = Field(min_length=20, max_length=200000)
     prompt: str | None = None
+    provider: str | None = None
 
 
 class CadModelFixRequest(BaseModel):
@@ -197,6 +200,7 @@ class CadModelFixRequest(BaseModel):
     cad_code: str = Field(min_length=20, max_length=200000)
     error_detail: str | None = None
     prompt: str | None = None
+    provider: str | None = None
 
 
 class CadModelGenerateResponse(BaseModel):

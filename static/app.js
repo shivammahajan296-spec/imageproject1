@@ -16,6 +16,7 @@ const DEFAULT_CAD_SHEET_PROMPT =
 const DEFAULT_STEP_CAD_PROMPT =
   "You are a senior mechanical CAD engineer and geometric reconstruction specialist.\n\nYour task is to analyze the provided product image and generate a fully parametric, manufacturable 3D CAD model exported as a STEP (.stp / .step) file.\n\nCRITICAL RULES:\n- Do NOT recreate the image.\n- Convert visible geometry into engineering solids.\n- No mesh or STL triangulation.\n- Only closed BREP solids.\n- Real-world manufacturable geometry only.\n\nSTEP 1 — GEOMETRY ANALYSIS\n- Identify object type\n- Detect symmetry (axial / planar / none)\n- Identify primitives (cylinder, cone, revolve, loft, extrude)\n- Detect grooves, ribs, fillets, chamfers\n- Detect hollow areas\n- Detect threads if present\n- Detect assembly parts\n- Infer realistic industrial dimensions if scale is unknown\n\nSTEP 2 — PARAMETRIC MODEL CREATION\nCreate parametric variables for overall height, outer diameter/width, wall thickness, groove depth, fillet radius, chamfer size, thread pitch.\nAll units in mm. Tolerance ±0.1 mm.\n\nSTEP 3 — ADVANCED FEATURES\nIf grooves visible, model using revolved cuts/sweeps.\nIf threads visible, use helical thread with clearance.\nIf hollow, maintain minimum wall thickness 2 mm.\nIf multipart, create separate solids.\n\nSTEP 4 — VALIDATION\nEnsure closed solids, no non-manifold edges, manufacturable wall thickness.\n\nSTEP 5 — OUTPUT\nReturn only executable CadQuery Python script that exports a STEP file.";
 const STEP_PROMPT_STORAGE_KEY = "stepCadPromptGlobal";
+const CAD_PROVIDER_STORAGE_KEY = "stepCadProviderGlobal";
 const INTEL_DATA = {
   cost: {
     estimatedUnit: 8.4,
@@ -149,6 +150,7 @@ const el = {
   cadSheetPlaceholder: document.getElementById("cadSheetPlaceholder"),
   generateStepCadBtn: document.getElementById("generateStepCadBtn"),
   stopStepCadBtn: document.getElementById("stopStepCadBtn"),
+  cadProviderSelect: document.getElementById("cadProviderSelect"),
   downloadCadCodeBtn: document.getElementById("downloadCadCodeBtn"),
   downloadStepBtn: document.getElementById("downloadStepBtn"),
   cadAttemptDetails: document.getElementById("cadAttemptDetails"),
@@ -206,6 +208,7 @@ let indexProgressTimer = null;
 let indexProgressStartTs = 0;
 let intelGenerated = false;
 let currentStepCadPrompt = "";
+let currentCadProvider = "gemini";
 let cadAttemptStates = Array.from({ length: 10 }, () => ({
   status: "inactive",
   errorText: "",
@@ -1071,6 +1074,7 @@ async function generateStepCad() {
     return;
   }
   const prompt = (currentStepCadPrompt || "").trim();
+  const provider = (currentCadProvider || "gemini").toLowerCase() === "gpt" ? "gpt" : "gemini";
   if (!prompt) {
     addMessage("system", "CAD Query prompt cannot be empty.");
     return;
@@ -1105,6 +1109,7 @@ async function generateStepCad() {
         res = await apiPost("/api/cad/model/generate", {
           session_id: state.sessionId,
           prompt,
+          provider,
         });
       } else {
         res = await apiPost("/api/cad/model/fix-code", {
@@ -1112,6 +1117,7 @@ async function generateStepCad() {
           cad_code: currentCode,
           error_detail: currentError,
           prompt,
+          provider,
         });
       }
 
@@ -1488,6 +1494,10 @@ document.querySelectorAll(".hub-module-head").forEach((btn) => {
   resetCadAttemptsUi();
   hideCadExecutionIssue();
   currentStepCadPrompt = getSavedStepCadPrompt();
+  currentCadProvider = (localStorage.getItem(CAD_PROVIDER_STORAGE_KEY) || "gemini").toLowerCase() === "gpt" ? "gpt" : "gemini";
+  if (el.cadProviderSelect) {
+    el.cadProviderSelect.value = currentCadProvider;
+  }
   if (el.stepPromptTextarea) {
     el.stepPromptTextarea.value = currentStepCadPrompt;
   }
@@ -1501,6 +1511,12 @@ document.querySelectorAll(".hub-module-head").forEach((btn) => {
     addMessage("system", "Unable to restore previous session state.");
   }
 })();
+
+el.cadProviderSelect.addEventListener("change", () => {
+  currentCadProvider = (el.cadProviderSelect.value || "gemini").toLowerCase() === "gpt" ? "gpt" : "gemini";
+  localStorage.setItem(CAD_PROVIDER_STORAGE_KEY, currentCadProvider);
+  addMessage("system", `CAD provider set to ${currentCadProvider.toUpperCase()}.`);
+});
 
 el.openStepPromptModalBtn.addEventListener("click", () => {
   el.stepPromptTextarea.value = currentStepCadPrompt || getSavedStepCadPrompt();
