@@ -103,6 +103,13 @@ CAD_LLM_SYSTEM_PROMPT = (
     "Use mm units, realistic manufacturable geometry, and keep script deterministic.\n"
     "Script must define geometry variables and call cq.exporters.export(..., <step_path>)."
 )
+CAD_FIX_SYSTEM_PROMPT = (
+    "You are a senior CadQuery debugging specialist.\n\n"
+    "You will receive failing CadQuery Python code and an execution error.\n"
+    "Return ONLY corrected executable Python code, no markdown and no explanation.\n"
+    "Keep existing geometry intent, make minimal required fixes, and ensure at least one .step export succeeds.\n"
+    "Do not use STL/mesh output. Use safe deterministic CadQuery code only."
+)
 
 
 def _request_api_key(request: Request) -> str | None:
@@ -996,7 +1003,7 @@ async def fix_cad_model_code(payload: CadModelFixRequest, request: Request) -> C
         f"{code}"
     )
     llm_text = await straive.cad_codegen(
-        system_prompt=CAD_LLM_SYSTEM_PROMPT,
+        system_prompt=CAD_FIX_SYSTEM_PROMPT,
         user_message=fix_prompt,
         api_key_override=req_api_key,
         image_bytes=None,

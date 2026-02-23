@@ -496,6 +496,17 @@ body {
 }
 #screen4 .two-col {
   grid-template-columns: 0.9fr 1.4fr;
+  align-items: start;
+}
+@media (max-width: 1200px) {
+  #screen4 .two-col {
+    grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.25fr);
+  }
+}
+@media (max-width: 820px) {
+  #screen4 .two-col {
+    grid-template-columns: 1fr;
+  }
 }
 .cad-error-panel {
   margin-top: 12px;
