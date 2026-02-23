@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from textwrap import dedent
+from typing import TypedDict
 
 from app.models import DesignSpec
 
 
 class CadGenerationError(Exception):
     pass
+
+
+class CadGenerationResult(TypedDict):
+    cad_code: str
+    summary: str
 
 
 JAR_REQUIRED_DIMENSIONS = ["outer_diameter_mm", "height_mm", "wall_thickness_mm", "cap_height_mm"]
@@ -27,7 +33,7 @@ def required_dimensions_for_type(product_type: str | None) -> list[str]:
     return []
 
 
-def generate_cadquery_code(spec: DesignSpec) -> tuple[str, str]:
+def generate_cadquery_code(spec: DesignSpec) -> CadGenerationResult:
     ptype = (spec.product_type or "").lower()
     dims = spec.dimensions
 
@@ -106,7 +112,7 @@ assembly.add(cap, name="cap")
 cq.exporters.export(jar, "jar.step")
 cq.exporters.export(cap, "jar_cap.step")
 """
-        return dedent(code).strip(), summary
+        return {"cad_code": dedent(code).strip(), "summary": summary}
 
     if ptype == "bottle":
         bd = dims["body_diameter_mm"]
@@ -192,7 +198,7 @@ cap = cap.union(lid)
 cq.exporters.export(bottle, "bottle.step")
 cq.exporters.export(cap, "flip_top_cap.step")
 """
-        return dedent(code).strip(), summary
+        return {"cad_code": dedent(code).strip(), "summary": summary}
 
     raise CadGenerationError(
         "Unsupported packaging type for CAD generation. Supported types: cosmetic jar and bottle."
