@@ -94,7 +94,7 @@ BASELINE_SEARCH_MSG = "Searching for a similar baseline design…"
 BASELINE_NEW_MSG = "No close baseline found. Creating a new concept."
 SESSION_IMAGE_DIR = Path(settings.session_images_dir)
 SESSION_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-CAD_RUN_DIR = SESSION_IMAGE_DIR / "cad_runs"
+CAD_RUN_DIR = Path("tmp_runtime/stepfiles")
 CAD_RUN_DIR.mkdir(parents=True, exist_ok=True)
 CAD_LLM_SYSTEM_PROMPT = (
     "You are a senior mechanical CAD engineer and geometric reconstruction specialist.\n\n"
@@ -301,6 +301,9 @@ def _validate_cad_script(script: str) -> None:
 
 
 def _resolve_relative_public_file(url_path: str) -> Path:
+    if url_path.startswith("/step-files/"):
+        rel = url_path.removeprefix("/step-files/")
+        return (CAD_RUN_DIR / rel).resolve()
     rel = url_path.removeprefix("/session-files/")
     return (SESSION_IMAGE_DIR / rel).resolve()
 
@@ -372,10 +375,10 @@ def _execute_and_persist_cad_code(state, session_id: str, cad_code: str) -> tupl
     except HTTPException as exc:
         return False, None, None, str(exc.detail)
 
-    code_rel = "/" + str(Path(script_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
-    step_rel = "/" + str(Path(step_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
-    code_file = f"/session-files{code_rel}"
-    step_file = f"/session-files{step_rel}"
+    code_rel = str(Path(script_path).resolve().relative_to(CAD_RUN_DIR.resolve())).replace("\\", "/")
+    step_rel = str(Path(step_path).resolve().relative_to(CAD_RUN_DIR.resolve())).replace("\\", "/")
+    code_file = f"/step-files/{code_rel}"
+    step_file = f"/step-files/{step_rel}"
 
     state.cad_model_code = cad_code
     state.cad_model_last_error = None
@@ -385,6 +388,28 @@ def _execute_and_persist_cad_code(state, session_id: str, cad_code: str) -> tupl
         state.step = 7
     store.save(state)
     return True, code_file, step_file, None
+
+
+def _cache_cadstep_for_state(state, cad_code: str, code_file: str, step_file: str) -> None:
+    prompt = (state.cad_model_prompt or "").strip()
+    image_path = (state.approved_image_local_path or "").strip()
+    if not prompt or not image_path:
+        return
+    p = Path(image_path)
+    if not p.exists() or not p.is_file():
+        return
+    approved_blob = p.read_bytes()
+    normalized_prompt = re.sub(r"\s+", " ", prompt)
+    cad_cache_key = _sha256_text(f"{_sha256_bytes(approved_blob)}::{normalized_prompt}")
+    _cache_json_put(
+        "cadstep",
+        cad_cache_key,
+        {
+            "cad_code": cad_code,
+            "code_file": code_file,
+            "step_file": step_file,
+        },
+    )
 
 
 @app.get("/health")
@@ -934,6 +959,7 @@ async def run_cad_model_code(payload: CadModelRunCodeRequest, request: Request) 
             cached=False,
         )
 
+    _cache_cadstep_for_state(state, cad_code, code_file or "", step_file or "")
     return CadModelGenerateResponse(
         message="CAD code executed successfully and STEP generated.",
         success=True,
@@ -988,6 +1014,7 @@ async def fix_cad_model_code(payload: CadModelFixRequest, request: Request) -> C
     fixed_code = _extract_python_code(llm_text)
     ok, code_file, step_file, err = _execute_and_persist_cad_code(state, payload.session_id, fixed_code)
     if ok:
+        _cache_cadstep_for_state(state, fixed_code, code_file or "", step_file or "")
         return CadModelGenerateResponse(
             message="CAD code fixed and STEP generated.",
             success=True,
@@ -1069,4 +1096,5 @@ async def get_session(session_id: str, request: Request) -> SessionResponse:
 
 app.mount("/asset-files", StaticFiles(directory=settings.assets_dir), name="asset-files")
 app.mount("/session-files", StaticFiles(directory=str(SESSION_IMAGE_DIR)), name="session-files")
+app.mount("/step-files", StaticFiles(directory=str(CAD_RUN_DIR)), name="step-files")
 app.mount("/static", StaticFiles(directory="static"), name="static")

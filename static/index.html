@@ -156,22 +156,28 @@
               </div>
               <div class="actions-row">
                 <button id="generateStepCadBtn" class="btn">Generate STEP CAD</button>
+                <button id="stopStepCadBtn" class="btn secondary" type="button" hidden>Stop</button>
                 <button id="openStepPromptModalBtn" class="btn secondary" type="button">Build CAD Prompt</button>
                 <a id="downloadCadCodeBtn" class="btn secondary" href="#" download="generated_cad.py" hidden>Download CAD Code</a>
                 <a id="downloadStepBtn" class="btn secondary" href="#" download="model.step" hidden>Download STEP</a>
               </div>
-              <div id="cadErrorPanel" class="cad-error-panel" hidden>
-                <h3>CAD Execution Error</h3>
-                <textarea id="cadErrorText" rows="4" readonly></textarea>
+              <div class="cad-attempts-wrap">
+                <div id="stepCadAttemptText" class="list-meta">Attempt 0 of 10</div>
+                <div id="stepCadAttemptPills" class="attempt-pills"></div>
+                <div id="stepCadUnresolvedBanner" class="attempt-banner" hidden>Unresolved after 10 attempts</div>
+              </div>
+              <details id="cadAttemptDetails" class="cad-error-panel" hidden>
+                <summary>Error Details</summary>
+                <textarea id="cadErrorText" rows="5" readonly></textarea>
                 <div class="actions-row">
                   <button id="copyCadErrorBtn" class="btn tiny secondary" type="button">Copy Error</button>
+                  <button id="toggleCadCodeBtn" class="btn tiny secondary" type="button">Show Code</button>
                 </div>
-                <label for="fixCadCodeTextarea" class="label">Generated / Fix CAD Code</label>
-                <textarea id="fixCadCodeTextarea" rows="14" placeholder="Generated CAD code appears here..."></textarea>
-                <div class="actions-row">
-                  <button id="runFixCadCodeBtn" class="btn warning" type="button">Run Fix Code</button>
-                  <button id="autoFixCadCodeBtn" class="btn" type="button">LLM Fix & Run</button>
+                <div id="cadCodeWrap" hidden>
+                  <label for="fixCadCodeTextarea" class="label">Latest Generated Code</label>
+                  <textarea id="fixCadCodeTextarea" rows="14" readonly></textarea>
                 </div>
+              </details>
               </div>
             </div>
             <div class="card">

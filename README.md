@@ -58,6 +58,7 @@ Note:
 ```bash
 uvicorn main:app --reload --reload-exclude 'tmp_runtime/*' --reload-exclude 'tmp_runtime/**'
 ```
+- STEP/CAD output files are stored under `tmp_runtime/stepfiles/`.
 
 Put reusable reference images in:
 - `assets/` (or the folder configured by `ASSETS_DIR`)

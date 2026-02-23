@@ -148,14 +148,18 @@ const el = {
   cadSheetPreview: document.getElementById("cadSheetPreview"),
   cadSheetPlaceholder: document.getElementById("cadSheetPlaceholder"),
   generateStepCadBtn: document.getElementById("generateStepCadBtn"),
+  stopStepCadBtn: document.getElementById("stopStepCadBtn"),
   downloadCadCodeBtn: document.getElementById("downloadCadCodeBtn"),
   downloadStepBtn: document.getElementById("downloadStepBtn"),
-  cadErrorPanel: document.getElementById("cadErrorPanel"),
+  cadAttemptDetails: document.getElementById("cadAttemptDetails"),
+  stepCadAttemptText: document.getElementById("stepCadAttemptText"),
+  stepCadAttemptPills: document.getElementById("stepCadAttemptPills"),
+  stepCadUnresolvedBanner: document.getElementById("stepCadUnresolvedBanner"),
   cadErrorText: document.getElementById("cadErrorText"),
   copyCadErrorBtn: document.getElementById("copyCadErrorBtn"),
+  toggleCadCodeBtn: document.getElementById("toggleCadCodeBtn"),
+  cadCodeWrap: document.getElementById("cadCodeWrap"),
   fixCadCodeTextarea: document.getElementById("fixCadCodeTextarea"),
-  runFixCadCodeBtn: document.getElementById("runFixCadCodeBtn"),
-  autoFixCadCodeBtn: document.getElementById("autoFixCadCodeBtn"),
   stepCadProgress: document.getElementById("stepCadProgress"),
   stepCadProgressText: document.getElementById("stepCadProgressText"),
   stepViewerFrame: document.getElementById("stepViewerFrame"),
@@ -202,6 +206,14 @@ let indexProgressTimer = null;
 let indexProgressStartTs = 0;
 let intelGenerated = false;
 let currentStepCadPrompt = "";
+let cadAttemptStates = Array.from({ length: 10 }, () => ({
+  status: "inactive",
+  errorText: "",
+  fullError: "",
+  codeText: "",
+}));
+let stepCadLoopStopRequested = false;
+let stepCadLoopRunning = false;
 const cadSpecState = {
   target_volume_ml: "",
   Soverall_height_mm: "",
@@ -324,7 +336,7 @@ function canRunEditNow() {
 function canGenerateStepCadNow() {
   const s = state.session;
   if (!s) return false;
-  return Boolean(s.approved_image_version) && !operationInFlight;
+  return Boolean(s.approved_image_version) && !operationInFlight && !stepCadLoopRunning;
 }
 
 function applyActionAvailability() {
@@ -392,14 +404,63 @@ function renderStepViewer(stepFile) {
   };
 }
 
+function errorSummary(text) {
+  const t = String(text || "").trim();
+  if (!t) return "";
+  return t.split("\n")[0].slice(0, 140);
+}
+
+function renderAttemptPills() {
+  el.stepCadAttemptPills.innerHTML = "";
+  cadAttemptStates.forEach((attempt, idx) => {
+    const pill = document.createElement("div");
+    pill.className = `attempt-pill ${attempt.status}`;
+    pill.textContent = String(idx + 1);
+    if (attempt.status === "success") {
+      pill.title = "Success";
+    } else if (attempt.status === "failed") {
+      pill.title = errorSummary(attempt.errorText || attempt.fullError || "Failed");
+    } else if (attempt.status === "running") {
+      pill.title = "Running";
+    } else if (attempt.status === "cancelled") {
+      pill.title = "Cancelled";
+    } else {
+      pill.title = "Inactive";
+    }
+    el.stepCadAttemptPills.appendChild(pill);
+  });
+}
+
+function resetCadAttemptsUi() {
+  cadAttemptStates = Array.from({ length: 10 }, () => ({
+    status: "inactive",
+    errorText: "",
+    fullError: "",
+    codeText: "",
+  }));
+  el.stepCadAttemptText.textContent = "Attempt 0 of 10";
+  el.stepCadUnresolvedBanner.hidden = true;
+  renderAttemptPills();
+}
+
+function updateAttemptStatus(index, patch) {
+  if (index < 0 || index >= cadAttemptStates.length) return;
+  cadAttemptStates[index] = { ...cadAttemptStates[index], ...patch };
+  renderAttemptPills();
+}
+
 function renderCadExecutionIssue(errorText, cadCode) {
-  el.cadErrorPanel.hidden = false;
+  el.cadAttemptDetails.hidden = false;
+  el.cadAttemptDetails.open = true;
   el.cadErrorText.value = (errorText || "").trim();
   el.fixCadCodeTextarea.value = cadCode || "";
+  el.cadCodeWrap.hidden = true;
+  el.toggleCadCodeBtn.textContent = "Show Code";
 }
 
 function hideCadExecutionIssue() {
-  el.cadErrorPanel.hidden = true;
+  el.cadAttemptDetails.hidden = true;
+  el.cadAttemptDetails.open = false;
   el.cadErrorText.value = "";
   el.fixCadCodeTextarea.value = "";
 }
@@ -1014,101 +1075,84 @@ async function generateStepCad() {
     addMessage("system", "CAD Query prompt cannot be empty.");
     return;
   }
-  setOperationLoading(true, "Generating CAD code and STEP file...");
-  setStepCadLoading(true, "Running CAD reconstruction and STEP export...");
-  addMessage("system", "Generating parametric CAD code and STEP file...");
+  let currentCode = "";
+  let currentError = "";
+  let success = false;
+  stepCadLoopStopRequested = false;
+  stepCadLoopRunning = true;
+  el.stopStepCadBtn.hidden = false;
+  setOperationLoading(true, "Running STEP CAD attempts...");
+  setStepCadLoading(true, "Attempt 1 of 10...");
+  resetCadAttemptsUi();
+  el.downloadStepBtn.hidden = true;
+  el.downloadStepBtn.removeAttribute("href");
+  addMessage("system", "Starting STEP CAD auto-fix attempts (max 10).");
+
   try {
-    const res = await apiPost("/api/cad/model/generate", {
-      session_id: state.sessionId,
-      prompt,
-    });
-    addMessage("assistant", `${res.message}${res.cached ? " (cache hit)" : ""}`);
-    if (res.success && res.step_file) {
-      el.downloadCadCodeBtn.href = res.code_file;
-      el.downloadCadCodeBtn.hidden = false;
-      el.downloadStepBtn.href = res.step_file;
-      el.downloadStepBtn.hidden = false;
-      renderStepViewer(res.step_file);
-      hideCadExecutionIssue();
-    } else {
-      el.downloadStepBtn.hidden = true;
-      el.downloadStepBtn.removeAttribute("href");
-      if (res.code_file) {
+    for (let i = 0; i < 10; i += 1) {
+      if (stepCadLoopStopRequested) {
+        updateAttemptStatus(i, { status: "cancelled" });
+        el.stepCadAttemptText.textContent = `Attempt ${i + 1} of 10 (Cancelled)`;
+        addMessage("system", "STEP CAD attempt loop cancelled.");
+        break;
+      }
+      el.stepCadAttemptText.textContent = `Attempt ${i + 1} of 10`;
+      setStepCadLoading(true, `Attempt ${i + 1} of 10...`);
+      updateAttemptStatus(i, { status: "running", errorText: "", fullError: "", codeText: "" });
+
+      let res;
+      if (i === 0) {
+        res = await apiPost("/api/cad/model/generate", {
+          session_id: state.sessionId,
+          prompt,
+        });
+      } else {
+        res = await apiPost("/api/cad/model/fix-code", {
+          session_id: state.sessionId,
+          cad_code: currentCode,
+          error_detail: currentError,
+        });
+      }
+
+      if (res.success && res.step_file) {
+        success = true;
+        el.stepCadAttemptText.textContent = `Attempt ${i + 1} of 10 (Success)`;
+        updateAttemptStatus(i, { status: "success", errorText: "Success", fullError: "", codeText: res.cad_code || "" });
+        addMessage("assistant", `${res.message}${res.cached ? " (cache hit)" : ""}`);
         el.downloadCadCodeBtn.href = res.code_file;
         el.downloadCadCodeBtn.hidden = false;
-      } else {
-        el.downloadCadCodeBtn.hidden = true;
-        el.downloadCadCodeBtn.removeAttribute("href");
+        el.downloadStepBtn.href = res.step_file;
+        el.downloadStepBtn.hidden = false;
+        renderStepViewer(res.step_file);
+        hideCadExecutionIssue();
+        break;
       }
-      renderCadExecutionIssue(res.error_detail || "CAD execution failed.", res.cad_code || "");
-    }
-    await refreshSession();
-  } finally {
-    setOperationLoading(false);
-    setStepCadLoading(false);
-  }
-}
 
-async function runFixCadCode() {
-  const code = (el.fixCadCodeTextarea.value || "").trim();
-  if (!code) {
-    addMessage("system", "Enter CAD code before running fix.");
-    return;
-  }
-  setOperationLoading(true, "Running fixed CAD code...");
-  setStepCadLoading(true, "Executing fixed code and checking STEP output...");
-  try {
-    const res = await apiPost("/api/cad/model/run-code", {
-      session_id: state.sessionId,
-      cad_code: code,
-    });
-    addMessage("assistant", res.message);
-    if (res.success && res.step_file) {
-      el.downloadCadCodeBtn.href = res.code_file;
-      el.downloadCadCodeBtn.hidden = false;
-      el.downloadStepBtn.href = res.step_file;
-      el.downloadStepBtn.hidden = false;
-      renderStepViewer(res.step_file);
-      hideCadExecutionIssue();
-    } else {
-      renderCadExecutionIssue(res.error_detail || "CAD execution failed.", res.cad_code || code);
+      currentCode = (res.cad_code || currentCode || "").trim();
+      currentError = (res.error_detail || "CAD execution failed.").trim();
+      updateAttemptStatus(i, {
+        status: "failed",
+        errorText: errorSummary(currentError),
+        fullError: currentError,
+        codeText: currentCode,
+      });
+      renderCadExecutionIssue(currentError, currentCode);
     }
-    await refreshSession();
-  } finally {
-    setOperationLoading(false);
-    setStepCadLoading(false);
-  }
-}
 
-async function autoFixCadCode() {
-  const code = (el.fixCadCodeTextarea.value || "").trim();
-  if (!code) {
-    addMessage("system", "Enter CAD code before running auto-fix.");
-    return;
-  }
-  setOperationLoading(true, "Running LLM fix...");
-  setStepCadLoading(true, "LLM is fixing code and executing one attempt...");
-  try {
-    const res = await apiPost("/api/cad/model/fix-code", {
-      session_id: state.sessionId,
-      cad_code: code,
-      error_detail: (el.cadErrorText.value || "").trim(),
-    });
-    addMessage("assistant", res.message);
-    if (res.success && res.step_file) {
-      el.downloadCadCodeBtn.href = res.code_file;
-      el.downloadCadCodeBtn.hidden = false;
-      el.downloadStepBtn.href = res.step_file;
-      el.downloadStepBtn.hidden = false;
-      renderStepViewer(res.step_file);
-      hideCadExecutionIssue();
-    } else {
-      renderCadExecutionIssue(res.error_detail || "Auto-fix failed.", res.cad_code || code);
+    if (!success && !stepCadLoopStopRequested) {
+      el.stepCadUnresolvedBanner.hidden = false;
+      addMessage("system", "Unresolved after 10 attempts.");
+      el.downloadStepBtn.hidden = true;
+      el.downloadStepBtn.removeAttribute("href");
     }
+
     await refreshSession();
   } finally {
+    stepCadLoopRunning = false;
+    el.stopStepCadBtn.hidden = true;
     setOperationLoading(false);
     setStepCadLoading(false);
+    applyActionAvailability();
   }
 }
 
@@ -1240,19 +1284,10 @@ el.generateStepCadBtn.addEventListener("click", async () => {
     addMessage("system", err.message);
   }
 });
-el.runFixCadCodeBtn.addEventListener("click", async () => {
-  try {
-    await runFixCadCode();
-  } catch (err) {
-    addMessage("system", err.message);
-  }
-});
-el.autoFixCadCodeBtn.addEventListener("click", async () => {
-  try {
-    await autoFixCadCode();
-  } catch (err) {
-    addMessage("system", err.message);
-  }
+el.stopStepCadBtn.addEventListener("click", () => {
+  if (!stepCadLoopRunning) return;
+  stepCadLoopStopRequested = true;
+  addMessage("system", "Stopping after current attempt...");
 });
 el.copyCadErrorBtn.addEventListener("click", async () => {
   const txt = (el.cadErrorText.value || "").trim();
@@ -1266,6 +1301,11 @@ el.copyCadErrorBtn.addEventListener("click", async () => {
   } catch (err) {
     addMessage("system", "Unable to copy error text.");
   }
+});
+el.toggleCadCodeBtn.addEventListener("click", () => {
+  const willShow = el.cadCodeWrap.hidden;
+  el.cadCodeWrap.hidden = !willShow;
+  el.toggleCadCodeBtn.textContent = willShow ? "Hide Code" : "Show Code";
 });
 el.stepFileBrowseInput.addEventListener("change", (e) => {
   const file = e.target.files && e.target.files[0];
@@ -1444,6 +1484,8 @@ document.querySelectorAll(".hub-module-head").forEach((btn) => {
 (async function init() {
   el.keyModal.hidden = true;
   el.intelligenceHubPage.hidden = true;
+  resetCadAttemptsUi();
+  hideCadExecutionIssue();
   currentStepCadPrompt = getSavedStepCadPrompt();
   if (el.stepPromptTextarea) {
     el.stepPromptTextarea.value = currentStepCadPrompt;
