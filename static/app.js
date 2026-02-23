@@ -152,6 +152,7 @@ const el = {
   stepCadProgress: document.getElementById("stepCadProgress"),
   stepCadProgressText: document.getElementById("stepCadProgressText"),
   stepViewerFrame: document.getElementById("stepViewerFrame"),
+  stepFileBrowseInput: document.getElementById("stepFileBrowseInput"),
   stepCadPrompt: document.getElementById("stepCadPrompt"),
   approvedImagePreview: document.getElementById("approvedImagePreview"),
   approvalStatus: document.getElementById("approvalStatus"),
@@ -1116,6 +1117,19 @@ el.generateStepCadBtn.addEventListener("click", async () => {
   } catch (err) {
     addMessage("system", err.message);
   }
+});
+el.stepFileBrowseInput.addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const name = (file.name || "").toLowerCase();
+  if (!(name.endsWith(".step") || name.endsWith(".stp"))) {
+    addMessage("system", "Please select a .step or .stp file.");
+    el.stepFileBrowseInput.value = "";
+    return;
+  }
+  const blobUrl = URL.createObjectURL(file);
+  renderStepViewer(blobUrl);
+  el.threeDText.textContent = `Loaded local STEP file: ${file.name}`;
 });
 el.generateCadSheetBtn.addEventListener("click", async () => {
   try {

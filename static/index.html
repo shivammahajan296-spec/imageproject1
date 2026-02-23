@@ -162,6 +162,10 @@
             </div>
             <div class="card">
               <h2>STEP 3D Viewer</h2>
+              <div class="actions-row" style="margin-bottom: 10px;">
+                <label class="btn secondary" for="stepFileBrowseInput" style="cursor: pointer;">Browse STEP File</label>
+                <input id="stepFileBrowseInput" type="file" accept=".step,.stp" hidden />
+              </div>
               <div class="cad-query-editor">
                 <label for="stepCadPrompt" class="label">Edit CAD Query Prompt</label>
                 <textarea id="stepCadPrompt" rows="12" placeholder="Edit CadQuery generation prompt..."></textarea>
