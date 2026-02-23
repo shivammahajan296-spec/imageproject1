@@ -150,6 +150,11 @@ const el = {
   generateStepCadBtn: document.getElementById("generateStepCadBtn"),
   downloadCadCodeBtn: document.getElementById("downloadCadCodeBtn"),
   downloadStepBtn: document.getElementById("downloadStepBtn"),
+  cadErrorPanel: document.getElementById("cadErrorPanel"),
+  cadErrorText: document.getElementById("cadErrorText"),
+  copyCadErrorBtn: document.getElementById("copyCadErrorBtn"),
+  fixCadCodeTextarea: document.getElementById("fixCadCodeTextarea"),
+  runFixCadCodeBtn: document.getElementById("runFixCadCodeBtn"),
   stepCadProgress: document.getElementById("stepCadProgress"),
   stepCadProgressText: document.getElementById("stepCadProgressText"),
   stepViewerFrame: document.getElementById("stepViewerFrame"),
@@ -384,6 +389,18 @@ function renderStepViewer(stepFile) {
   el.stepViewerFrame.onload = () => {
     el.stepViewerFrame.contentWindow?.postMessage(msg, "*");
   };
+}
+
+function renderCadExecutionIssue(errorText, cadCode) {
+  el.cadErrorPanel.hidden = false;
+  el.cadErrorText.value = (errorText || "").trim();
+  el.fixCadCodeTextarea.value = cadCode || "";
+}
+
+function hideCadExecutionIssue() {
+  el.cadErrorPanel.hidden = true;
+  el.cadErrorText.value = "";
+  el.fixCadCodeTextarea.value = "";
 }
 
 function renderCadSheetPreview(src) {
@@ -773,9 +790,15 @@ function updateFromSession(s) {
   if (s.cad_step_file) {
     el.downloadStepBtn.href = s.cad_step_file;
     el.downloadStepBtn.hidden = false;
+    hideCadExecutionIssue();
   } else {
     el.downloadStepBtn.hidden = true;
     el.downloadStepBtn.removeAttribute("href");
+    if (s.cad_model_last_error || s.cad_model_code) {
+      renderCadExecutionIssue(s.cad_model_last_error || "", s.cad_model_code || "");
+    } else {
+      hideCadExecutionIssue();
+    }
   }
   if (s.cad_model_prompt && !localStorage.getItem(STEP_PROMPT_STORAGE_KEY)) {
     currentStepCadPrompt = s.cad_model_prompt;
@@ -999,11 +1022,56 @@ async function generateStepCad() {
       prompt,
     });
     addMessage("assistant", `${res.message}${res.cached ? " (cache hit)" : ""}`);
-    el.downloadCadCodeBtn.href = res.code_file;
-    el.downloadCadCodeBtn.hidden = false;
-    el.downloadStepBtn.href = res.step_file;
-    el.downloadStepBtn.hidden = false;
-    renderStepViewer(res.step_file);
+    if (res.success && res.step_file) {
+      el.downloadCadCodeBtn.href = res.code_file;
+      el.downloadCadCodeBtn.hidden = false;
+      el.downloadStepBtn.href = res.step_file;
+      el.downloadStepBtn.hidden = false;
+      renderStepViewer(res.step_file);
+      hideCadExecutionIssue();
+    } else {
+      el.downloadStepBtn.hidden = true;
+      el.downloadStepBtn.removeAttribute("href");
+      if (res.code_file) {
+        el.downloadCadCodeBtn.href = res.code_file;
+        el.downloadCadCodeBtn.hidden = false;
+      } else {
+        el.downloadCadCodeBtn.hidden = true;
+        el.downloadCadCodeBtn.removeAttribute("href");
+      }
+      renderCadExecutionIssue(res.error_detail || "CAD execution failed.", res.cad_code || "");
+    }
+    await refreshSession();
+  } finally {
+    setOperationLoading(false);
+    setStepCadLoading(false);
+  }
+}
+
+async function runFixCadCode() {
+  const code = (el.fixCadCodeTextarea.value || "").trim();
+  if (!code) {
+    addMessage("system", "Enter CAD code before running fix.");
+    return;
+  }
+  setOperationLoading(true, "Running fixed CAD code...");
+  setStepCadLoading(true, "Executing fixed code and checking STEP output...");
+  try {
+    const res = await apiPost("/api/cad/model/run-code", {
+      session_id: state.sessionId,
+      cad_code: code,
+    });
+    addMessage("assistant", res.message);
+    if (res.success && res.step_file) {
+      el.downloadCadCodeBtn.href = res.code_file;
+      el.downloadCadCodeBtn.hidden = false;
+      el.downloadStepBtn.href = res.step_file;
+      el.downloadStepBtn.hidden = false;
+      renderStepViewer(res.step_file);
+      hideCadExecutionIssue();
+    } else {
+      renderCadExecutionIssue(res.error_detail || "CAD execution failed.", res.cad_code || code);
+    }
     await refreshSession();
   } finally {
     setOperationLoading(false);
@@ -1137,6 +1205,26 @@ el.generateStepCadBtn.addEventListener("click", async () => {
     await generateStepCad();
   } catch (err) {
     addMessage("system", err.message);
+  }
+});
+el.runFixCadCodeBtn.addEventListener("click", async () => {
+  try {
+    await runFixCadCode();
+  } catch (err) {
+    addMessage("system", err.message);
+  }
+});
+el.copyCadErrorBtn.addEventListener("click", async () => {
+  const txt = (el.cadErrorText.value || "").trim();
+  if (!txt) {
+    addMessage("system", "No error text to copy.");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(txt);
+    addMessage("system", "CAD error copied to clipboard.");
+  } catch (err) {
+    addMessage("system", "Unable to copy error text.");
   }
 });
 el.stepFileBrowseInput.addEventListener("change", (e) => {

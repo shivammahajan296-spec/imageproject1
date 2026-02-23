@@ -47,6 +47,7 @@ class SessionState(BaseModel):
     cad_sheet_image_local_path: str | None = None
     cad_model_prompt: str | None = None
     cad_model_code: str | None = None
+    cad_model_last_error: str | None = None
     cad_model_code_path: str | None = None
     cad_step_file: str | None = None
     lock_question_asked: bool = False
@@ -185,9 +186,16 @@ class CadModelGenerateRequest(BaseModel):
     prompt: str = Field(min_length=20, max_length=12000)
 
 
+class CadModelRunCodeRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+    cad_code: str = Field(min_length=20, max_length=200000)
+
+
 class CadModelGenerateResponse(BaseModel):
     message: str
-    cad_code: str
-    code_file: str
-    step_file: str
+    success: bool = True
+    cad_code: str = ""
+    code_file: str | None = None
+    step_file: str | None = None
+    error_detail: str | None = None
     cached: bool = False

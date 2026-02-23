@@ -160,6 +160,18 @@
                 <a id="downloadCadCodeBtn" class="btn secondary" href="#" download="generated_cad.py" hidden>Download CAD Code</a>
                 <a id="downloadStepBtn" class="btn secondary" href="#" download="model.step" hidden>Download STEP</a>
               </div>
+              <div id="cadErrorPanel" class="cad-error-panel" hidden>
+                <h3>CAD Execution Error</h3>
+                <textarea id="cadErrorText" rows="4" readonly></textarea>
+                <div class="actions-row">
+                  <button id="copyCadErrorBtn" class="btn tiny secondary" type="button">Copy Error</button>
+                </div>
+                <label for="fixCadCodeTextarea" class="label">Generated / Fix CAD Code</label>
+                <textarea id="fixCadCodeTextarea" rows="14" placeholder="Generated CAD code appears here..."></textarea>
+                <div class="actions-row">
+                  <button id="runFixCadCodeBtn" class="btn warning" type="button">Run Fix Code</button>
+                </div>
+              </div>
             </div>
             <div class="card">
               <h2>STEP 3D Viewer</h2>

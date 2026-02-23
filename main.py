@@ -38,6 +38,7 @@ from app.models import (
     BriefUploadResponse,
     CadModelGenerateRequest,
     CadModelGenerateResponse,
+    CadModelRunCodeRequest,
     CadSheetGenerateRequest,
     CadSheetGenerateResponse,
     VersionApproveRequest,
@@ -333,6 +334,29 @@ def _run_generated_cad_script(script_text: str, session_id: str) -> tuple[str, s
     return str(script_path.resolve()), str(step_path.resolve())
 
 
+def _cad_failure_response(
+    state,
+    message: str,
+    cad_code: str,
+    error_detail: str,
+    cached: bool = False,
+) -> CadModelGenerateResponse:
+    state.cad_model_code = cad_code
+    state.cad_model_last_error = error_detail
+    state.cad_model_code_path = None
+    state.cad_step_file = None
+    store.save(state)
+    return CadModelGenerateResponse(
+        message=message,
+        success=False,
+        cad_code=cad_code,
+        code_file=None,
+        step_file=None,
+        error_detail=error_detail,
+        cached=cached,
+    )
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -549,6 +573,7 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
     state.cad_sheet_image_local_path = None
     state.cad_model_prompt = None
     state.cad_model_code = None
+    state.cad_model_last_error = None
     state.cad_model_code_path = None
     state.cad_step_file = None
 
@@ -616,6 +641,7 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
     state.cad_sheet_image_local_path = None
     state.cad_model_prompt = None
     state.cad_model_code = None
+    state.cad_model_last_error = None
     state.cad_model_code_path = None
     state.cad_step_file = None
 
@@ -661,6 +687,7 @@ async def adopt_baseline(payload: BaselineAdoptRequest, request: Request) -> Ima
     state.cad_sheet_image_local_path = None
     state.cad_model_prompt = None
     state.cad_model_code = None
+    state.cad_model_last_error = None
     state.cad_model_code_path = None
     state.cad_step_file = None
     if state.step < 4:
@@ -696,6 +723,7 @@ async def approve_version(payload: VersionApproveRequest, request: Request) -> V
     state.cad_sheet_image_local_path = None
     state.cad_model_prompt = None
     state.cad_model_code = None
+    state.cad_model_last_error = None
     state.cad_model_code_path = None
     state.cad_step_file = None
     # Approve screen entry point for STEP CAD generation.
@@ -779,6 +807,7 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
             if code_path.exists() and step_path.exists():
                 state.cad_model_prompt = payload.prompt
                 state.cad_model_code = cad_code_cached
+                state.cad_model_last_error = None
                 state.cad_model_code_path = code_file_cached
                 state.cad_step_file = step_file_cached
                 if state.step < 7:
@@ -786,9 +815,11 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
                 store.save(state)
                 return CadModelGenerateResponse(
                     message=f"CAD model loaded from cache for approved version v{state.approved_image_version}.",
+                    success=True,
                     cad_code=cad_code_cached,
                     code_file=code_file_cached,
                     step_file=step_file_cached,
+                    error_detail=None,
                     cached=True,
                 )
 
@@ -807,11 +838,36 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
         image_mime_type=approved_mime,
     )
     if not llm_text or not llm_text.strip():
-        raise HTTPException(status_code=502, detail="LLM returned empty CAD script output.")
+        return _cad_failure_response(
+            state=state,
+            message="CAD generation failed: LLM returned empty output.",
+            cad_code="",
+            error_detail="LLM returned empty CAD script output.",
+            cached=False,
+        )
 
     cad_code = _extract_python_code(llm_text)
-    _validate_cad_script(cad_code)
-    script_path, step_path = _run_generated_cad_script(cad_code, payload.session_id)
+    try:
+        _validate_cad_script(cad_code)
+    except HTTPException as exc:
+        return _cad_failure_response(
+            state=state,
+            message="CAD generation failed during script validation.",
+            cad_code=cad_code,
+            error_detail=str(exc.detail),
+            cached=False,
+        )
+
+    try:
+        script_path, step_path = _run_generated_cad_script(cad_code, payload.session_id)
+    except HTTPException as exc:
+        return _cad_failure_response(
+            state=state,
+            message="CAD execution failed. Fix code and retry.",
+            cad_code=cad_code,
+            error_detail=str(exc.detail),
+            cached=False,
+        )
 
     code_rel = "/" + str(Path(script_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
     step_rel = "/" + str(Path(step_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
@@ -829,6 +885,7 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
     )
     state.cad_model_prompt = payload.prompt
     state.cad_model_code = cad_code
+    state.cad_model_last_error = None
     state.cad_model_code_path = code_file
     state.cad_step_file = step_file
     if state.step < 7:
@@ -837,9 +894,71 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
 
     return CadModelGenerateResponse(
         message=f"CAD STEP model generated from approved version v{state.approved_image_version}.",
+        success=True,
         cad_code=cad_code,
         code_file=code_file,
         step_file=step_file,
+        error_detail=None,
+        cached=False,
+    )
+
+
+@app.post("/api/cad/model/run-code", response_model=CadModelGenerateResponse)
+async def run_cad_model_code(payload: CadModelRunCodeRequest, request: Request) -> CadModelGenerateResponse:
+    limiter.check(request, "cad-model-run-code")
+    state = store.get_or_create(payload.session_id)
+    cad_code = (payload.cad_code or "").strip()
+    if not cad_code:
+        return _cad_failure_response(
+            state=state,
+            message="No CAD code provided.",
+            cad_code="",
+            error_detail="CAD code is empty.",
+            cached=False,
+        )
+
+    try:
+        _validate_cad_script(cad_code)
+    except HTTPException as exc:
+        return _cad_failure_response(
+            state=state,
+            message="CAD validation failed. Fix code and retry.",
+            cad_code=cad_code,
+            error_detail=str(exc.detail),
+            cached=False,
+        )
+
+    try:
+        script_path, step_path = _run_generated_cad_script(cad_code, payload.session_id)
+    except HTTPException as exc:
+        return _cad_failure_response(
+            state=state,
+            message="CAD execution failed. Fix code and retry.",
+            cad_code=cad_code,
+            error_detail=str(exc.detail),
+            cached=False,
+        )
+
+    code_rel = "/" + str(Path(script_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
+    step_rel = "/" + str(Path(step_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
+    code_file = f"/session-files{code_rel}"
+    step_file = f"/session-files{step_rel}"
+
+    state.cad_model_code = cad_code
+    state.cad_model_last_error = None
+    state.cad_model_code_path = code_file
+    state.cad_step_file = step_file
+    if state.step < 7:
+        state.step = 7
+    store.save(state)
+
+    return CadModelGenerateResponse(
+        message="CAD code executed successfully and STEP generated.",
+        success=True,
+        cad_code=cad_code,
+        code_file=code_file,
+        step_file=step_file,
+        error_detail=None,
         cached=False,
     )
 
@@ -885,6 +1004,7 @@ async def clear_session(payload: SessionClearRequest, request: Request) -> Sessi
     reset_state.cad_sheet_image_local_path = None
     reset_state.cad_model_prompt = None
     reset_state.cad_model_code = None
+    reset_state.cad_model_last_error = None
     reset_state.cad_model_code_path = None
     reset_state.cad_step_file = None
     reset_state.lock_question_asked = False

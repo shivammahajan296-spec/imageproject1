@@ -497,6 +497,30 @@ body {
 #screen4 .two-col {
   grid-template-columns: 0.9fr 1.4fr;
 }
+.cad-error-panel {
+  margin-top: 12px;
+  border: 1px solid #efb5b0;
+  background: #fff8f7;
+  border-radius: 10px;
+  padding: 10px;
+}
+.cad-error-panel h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  color: #8f2f27;
+}
+#cadErrorText,
+#fixCadCodeTextarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.85rem;
+  background: #fff;
+  resize: vertical;
+  margin-bottom: 8px;
+}
 
 .modal {
   position: fixed;
