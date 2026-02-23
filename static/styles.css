@@ -737,6 +737,7 @@ body {
 
 @media (max-width: 980px) {
   .two-col { grid-template-columns: 1fr; }
+  #screen4 .two-col { grid-template-columns: minmax(300px, 0.95fr) minmax(380px, 1.25fr); }
   .messages { height: 300px; }
   .baseline-card .list-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #screen3 .cad-two-col { grid-template-columns: 1fr; }
