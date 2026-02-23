@@ -32,7 +32,7 @@ def load_settings() -> Settings:
         db_path=os.getenv("APP_DB_PATH", "app.db"),
         assets_dir=os.getenv("ASSETS_DIR", "assets"),
         auto_index_assets=os.getenv("AUTO_INDEX_ASSETS", "false").lower() == "true",
-        cache_dir=os.getenv("CACHE_DIR", "/tmp/pack_design_cache"),
-        session_images_dir=os.getenv("SESSION_IMAGES_DIR", "/tmp/pack_design_session_images"),
+        cache_dir=os.getenv("CACHE_DIR", "tmp_runtime/cache"),
+        session_images_dir=os.getenv("SESSION_IMAGES_DIR", "tmp_runtime/session_images"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
     )
