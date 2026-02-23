@@ -15,6 +15,7 @@ const DEFAULT_CAD_SHEET_PROMPT =
   "You are generating a technical mechanical CAD drawing sheet.\n\nUse the provided product image as geometry reference only.\nDo NOT recreate the photo.\nConvert the object into a formal engineering drawing sheet.\n\nSHEET FORMAT (STRICT):\nA3 landscape (420mm × 297mm)\nAspect ratio locked\n20mm outer border\nWhite background\nBlack thin drafting lines only\nEntire sheet must be fully visible\nOrthographic straight camera\nNo perspective\nNo zoom\nNo cropping\n\nLAYOUT (DO NOT CHANGE):\n\nTop Row:\nLeft: Front View\nCenter: Right Side View\nRight: Exploded View\n\nBottom Row:\nLeft: Top View\nCenter: Section A-A (vertical center cut)\nRight: Isometric View\n\nViews must stay inside their grid areas.\nNo overlapping.\nNo dynamic repositioning.\n\nENGINEERING DETAILS:\n• Centerlines\n• Hidden lines\n• Dimension lines with arrowheads\n• Units in millimeters\n• Wall thickness callouts if hollow\n• Thread representation if applicable\n• Material labels inferred from image\n• Standard tolerance ±0.1 mm\n• Third-angle projection symbol\n• Title block bottom-right\n• Scale 1:1\n\nIMPORTANT:\nLayout must remain fixed.\nOnly geometry changes per object.\nThe entire A3 sheet must be visible inside the image frame.\nThe entire sheet must be rendered as a fully visible flat document, centered in the frame with clear white space surrounding all four edges. Absolutely no cropping, zooming, clipping, edge-touching, or partial cutoff is permitted — the full outer border, title block, and all margins must remain completely visible inside the image boundaries.";
 const DEFAULT_STEP_CAD_PROMPT =
   "You are a senior mechanical CAD engineer and geometric reconstruction specialist.\n\nYour task is to analyze the provided product image and generate a fully parametric, manufacturable 3D CAD model exported as a STEP (.stp / .step) file.\n\nCRITICAL RULES:\n- Do NOT recreate the image.\n- Convert visible geometry into engineering solids.\n- No mesh or STL triangulation.\n- Only closed BREP solids.\n- Real-world manufacturable geometry only.\n\nSTEP 1 — GEOMETRY ANALYSIS\n- Identify object type\n- Detect symmetry (axial / planar / none)\n- Identify primitives (cylinder, cone, revolve, loft, extrude)\n- Detect grooves, ribs, fillets, chamfers\n- Detect hollow areas\n- Detect threads if present\n- Detect assembly parts\n- Infer realistic industrial dimensions if scale is unknown\n\nSTEP 2 — PARAMETRIC MODEL CREATION\nCreate parametric variables for overall height, outer diameter/width, wall thickness, groove depth, fillet radius, chamfer size, thread pitch.\nAll units in mm. Tolerance ±0.1 mm.\n\nSTEP 3 — ADVANCED FEATURES\nIf grooves visible, model using revolved cuts/sweeps.\nIf threads visible, use helical thread with clearance.\nIf hollow, maintain minimum wall thickness 2 mm.\nIf multipart, create separate solids.\n\nSTEP 4 — VALIDATION\nEnsure closed solids, no non-manifold edges, manufacturable wall thickness.\n\nSTEP 5 — OUTPUT\nReturn only executable CadQuery Python script that exports a STEP file.";
+const STEP_PROMPT_STORAGE_KEY = "stepCadPromptGlobal";
 const INTEL_DATA = {
   cost: {
     estimatedUnit: 8.4,
@@ -153,7 +154,12 @@ const el = {
   stepCadProgressText: document.getElementById("stepCadProgressText"),
   stepViewerFrame: document.getElementById("stepViewerFrame"),
   stepFileBrowseInput: document.getElementById("stepFileBrowseInput"),
-  stepCadPrompt: document.getElementById("stepCadPrompt"),
+  openStepPromptModalBtn: document.getElementById("openStepPromptModalBtn"),
+  stepPromptModal: document.getElementById("stepPromptModal"),
+  stepPromptTextarea: document.getElementById("stepPromptTextarea"),
+  saveStepPromptBtn: document.getElementById("saveStepPromptBtn"),
+  clearStepPromptBtn: document.getElementById("clearStepPromptBtn"),
+  closeStepPromptBtn: document.getElementById("closeStepPromptBtn"),
   approvedImagePreview: document.getElementById("approvedImagePreview"),
   approvalStatus: document.getElementById("approvalStatus"),
   threeDText: document.getElementById("threeDText"),
@@ -189,6 +195,7 @@ let baselineLoadingInProgress = false;
 let indexProgressTimer = null;
 let indexProgressStartTs = 0;
 let intelGenerated = false;
+let currentStepCadPrompt = "";
 const cadSpecState = {
   target_volume_ml: "",
   Soverall_height_mm: "",
@@ -235,6 +242,11 @@ function renderIntelHubData() {
   el.wordCloud.innerHTML = INTEL_DATA.sentiment.cloud
     .map((w, idx) => `<span class="word-chip" style="font-size:${0.78 + (idx % 4) * 0.08}rem">${w}</span>`)
     .join("");
+}
+
+function getSavedStepCadPrompt() {
+  const saved = localStorage.getItem(STEP_PROMPT_STORAGE_KEY) || "";
+  return saved.trim() || DEFAULT_STEP_CAD_PROMPT;
 }
 
 function sleep(ms) {
@@ -303,6 +315,12 @@ function canRunEditNow() {
   return hasImages && !s.lock_confirmed && !operationInFlight;
 }
 
+function canGenerateStepCadNow() {
+  const s = state.session;
+  if (!s) return false;
+  return Boolean(s.approved_image_version) && !operationInFlight;
+}
+
 function applyActionAvailability() {
   const s = state.session;
   if (!s) return;
@@ -311,7 +329,6 @@ function applyActionAvailability() {
   const canGenerate2D = s.step >= 3 && !hasImages;
   const canGenerateCadSheet = Boolean(s.approved_image_version && !operationInFlight);
   const canProceedTo3D = Boolean(s.cad_sheet_image_url_or_base64);
-  const canGenerateStepCad = Boolean(s.approved_image_version && !operationInFlight);
 
   el.generate2dBtn.disabled = operationInFlight || !canGenerate2D;
   // Keep Run Edit clickable so click handler can always provide deterministic feedback.
@@ -320,7 +337,9 @@ function applyActionAvailability() {
   el.approveCurrentForCadBtn.disabled = !canApproveCurrent;
   el.generateCadSheetBtn.disabled = !canGenerateCadSheet;
   el.proceedTo3dBtn.disabled = !canProceedTo3D;
-  el.generateStepCadBtn.disabled = !canGenerateStepCad;
+  // Keep Generate STEP CAD clickable so click handler can provide deterministic feedback.
+  el.generateStepCadBtn.disabled = false;
+  el.generateStepCadBtn.classList.toggle("pseudo-disabled", !canGenerateStepCadNow());
 }
 
 function renderApprovedImage(sessionState) {
@@ -758,12 +777,8 @@ function updateFromSession(s) {
     el.downloadStepBtn.hidden = true;
     el.downloadStepBtn.removeAttribute("href");
   }
-  if (el.stepCadPrompt) {
-    if (!el.stepCadPrompt.value.trim()) {
-      el.stepCadPrompt.value = s.cad_model_prompt || DEFAULT_STEP_CAD_PROMPT;
-    } else if (s.cad_model_prompt && !el.stepCadPrompt.dataset.touched) {
-      el.stepCadPrompt.value = s.cad_model_prompt;
-    }
+  if (s.cad_model_prompt && !localStorage.getItem(STEP_PROMPT_STORAGE_KEY)) {
+    currentStepCadPrompt = s.cad_model_prompt;
   }
   renderStepViewer(s.cad_step_file);
 
@@ -960,11 +975,17 @@ function setCadSheetLoading(isLoading, text = "Generating CAD drawing sheet...")
 }
 
 async function generateStepCad() {
-  if (!state.session?.approved_image_version) {
-    addMessage("system", "Approve a version first before generating STEP CAD.");
+  if (!canGenerateStepCadNow()) {
+    if (!state.session?.approved_image_version) {
+      addMessage("system", "Approve a version first before generating STEP CAD.");
+    } else if (operationInFlight) {
+      addMessage("system", "Another operation is running. Please wait.");
+    } else {
+      addMessage("system", "STEP CAD generation is not available yet.");
+    }
     return;
   }
-  const prompt = (el.stepCadPrompt?.value || "").trim();
+  const prompt = (currentStepCadPrompt || "").trim();
   if (!prompt) {
     addMessage("system", "CAD Query prompt cannot be empty.");
     return;
@@ -1295,11 +1316,9 @@ document.querySelectorAll(".hub-module-head").forEach((btn) => {
 (async function init() {
   el.keyModal.hidden = true;
   el.intelligenceHubPage.hidden = true;
-  if (el.stepCadPrompt) {
-    el.stepCadPrompt.value = DEFAULT_STEP_CAD_PROMPT;
-    el.stepCadPrompt.addEventListener("input", () => {
-      el.stepCadPrompt.dataset.touched = "1";
-    });
+  currentStepCadPrompt = getSavedStepCadPrompt();
+  if (el.stepPromptTextarea) {
+    el.stepPromptTextarea.value = currentStepCadPrompt;
   }
   el.apiKeyPopupInput.value = state.apiKey;
   renderKeyBadge();
@@ -1311,6 +1330,40 @@ document.querySelectorAll(".hub-module-head").forEach((btn) => {
     addMessage("system", "Unable to restore previous session state.");
   }
 })();
+
+el.openStepPromptModalBtn.addEventListener("click", () => {
+  el.stepPromptTextarea.value = currentStepCadPrompt || getSavedStepCadPrompt();
+  el.stepPromptModal.hidden = false;
+});
+
+el.saveStepPromptBtn.addEventListener("click", () => {
+  const next = (el.stepPromptTextarea.value || "").trim();
+  if (!next) {
+    addMessage("system", "Prompt is empty. Use Clear Prompt to reset or enter text.");
+    return;
+  }
+  currentStepCadPrompt = next;
+  localStorage.setItem(STEP_PROMPT_STORAGE_KEY, next);
+  el.stepPromptModal.hidden = true;
+  addMessage("system", "CAD prompt saved. It will be reused in next sessions.");
+});
+
+el.clearStepPromptBtn.addEventListener("click", () => {
+  localStorage.removeItem(STEP_PROMPT_STORAGE_KEY);
+  currentStepCadPrompt = DEFAULT_STEP_CAD_PROMPT;
+  el.stepPromptTextarea.value = currentStepCadPrompt;
+  addMessage("system", "CAD prompt reset to default.");
+});
+
+el.closeStepPromptBtn.addEventListener("click", () => {
+  el.stepPromptModal.hidden = true;
+});
+
+el.stepPromptModal.addEventListener("click", (e) => {
+  if (e.target === el.stepPromptModal) {
+    el.stepPromptModal.hidden = true;
+  }
+});
 
 el.openKeyModalBtn.addEventListener("click", () => {
   el.apiKeyPopupInput.value = state.apiKey;

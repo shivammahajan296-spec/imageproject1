@@ -156,6 +156,7 @@
               </div>
               <div class="actions-row">
                 <button id="generateStepCadBtn" class="btn">Generate STEP CAD</button>
+                <button id="openStepPromptModalBtn" class="btn secondary" type="button">Build CAD Prompt</button>
                 <a id="downloadCadCodeBtn" class="btn secondary" href="#" download="generated_cad.py" hidden>Download CAD Code</a>
                 <a id="downloadStepBtn" class="btn secondary" href="#" download="model.step" hidden>Download STEP</a>
               </div>
@@ -165,10 +166,6 @@
               <div class="actions-row" style="margin-bottom: 10px;">
                 <label class="btn secondary" for="stepFileBrowseInput" style="cursor: pointer;">Browse STEP File</label>
                 <input id="stepFileBrowseInput" type="file" accept=".step,.stp" hidden />
-              </div>
-              <div class="cad-query-editor">
-                <label for="stepCadPrompt" class="label">Edit CAD Query Prompt</label>
-                <textarea id="stepCadPrompt" rows="12" placeholder="Edit CadQuery generation prompt..."></textarea>
               </div>
               <div id="threeDPanel" class="three-d">
                 <p id="threeDText">Approve a version, then generate STEP CAD.</p>
@@ -328,6 +325,18 @@
         <div class="actions-row">
           <button id="saveCadPromptModalBtn" class="btn tiny" type="button">Save Spec</button>
           <button id="closeCadPromptModalBtn" class="btn tiny secondary" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+    <div id="stepPromptModal" class="modal" hidden>
+      <div class="modal-card modal-card-lg">
+        <h3>Build CAD Prompt</h3>
+        <label for="stepPromptTextarea" class="label">CadQuery Prompt</label>
+        <textarea id="stepPromptTextarea" rows="16" placeholder="Write CAD generation prompt..."></textarea>
+        <div class="actions-row">
+          <button id="saveStepPromptBtn" class="btn tiny" type="button">Save Prompt</button>
+          <button id="clearStepPromptBtn" class="btn tiny secondary" type="button">Clear Prompt</button>
+          <button id="closeStepPromptBtn" class="btn tiny secondary" type="button">Close</button>
         </div>
       </div>
     </div>
