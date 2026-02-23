@@ -152,6 +152,7 @@ const el = {
   stepCadProgress: document.getElementById("stepCadProgress"),
   stepCadProgressText: document.getElementById("stepCadProgressText"),
   stepViewerFrame: document.getElementById("stepViewerFrame"),
+  stepCadPrompt: document.getElementById("stepCadPrompt"),
   approvedImagePreview: document.getElementById("approvedImagePreview"),
   approvalStatus: document.getElementById("approvalStatus"),
   threeDText: document.getElementById("threeDText"),
@@ -756,6 +757,13 @@ function updateFromSession(s) {
     el.downloadStepBtn.hidden = true;
     el.downloadStepBtn.removeAttribute("href");
   }
+  if (el.stepCadPrompt) {
+    if (!el.stepCadPrompt.value.trim()) {
+      el.stepCadPrompt.value = s.cad_model_prompt || DEFAULT_STEP_CAD_PROMPT;
+    } else if (s.cad_model_prompt && !el.stepCadPrompt.dataset.touched) {
+      el.stepCadPrompt.value = s.cad_model_prompt;
+    }
+  }
   renderStepViewer(s.cad_step_file);
 
   el.threeDText.textContent = s.cad_step_file
@@ -955,8 +963,11 @@ async function generateStepCad() {
     addMessage("system", "Approve a version first before generating STEP CAD.");
     return;
   }
-  const prompt = window.prompt("STEP CAD generation prompt", DEFAULT_STEP_CAD_PROMPT);
-  if (!prompt) return;
+  const prompt = (el.stepCadPrompt?.value || "").trim();
+  if (!prompt) {
+    addMessage("system", "CAD Query prompt cannot be empty.");
+    return;
+  }
   setOperationLoading(true, "Generating CAD code and STEP file...");
   setStepCadLoading(true, "Running CAD reconstruction and STEP export...");
   addMessage("system", "Generating parametric CAD code and STEP file...");
@@ -1270,6 +1281,12 @@ document.querySelectorAll(".hub-module-head").forEach((btn) => {
 (async function init() {
   el.keyModal.hidden = true;
   el.intelligenceHubPage.hidden = true;
+  if (el.stepCadPrompt) {
+    el.stepCadPrompt.value = DEFAULT_STEP_CAD_PROMPT;
+    el.stepCadPrompt.addEventListener("input", () => {
+      el.stepCadPrompt.dataset.touched = "1";
+    });
+  }
   el.apiKeyPopupInput.value = state.apiKey;
   renderKeyBadge();
   addMessage("system", "Session initialized. Start with packaging requirements.");

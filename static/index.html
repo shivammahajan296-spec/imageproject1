@@ -162,6 +162,10 @@
             </div>
             <div class="card">
               <h2>STEP 3D Viewer</h2>
+              <div class="cad-query-editor">
+                <label for="stepCadPrompt" class="label">Edit CAD Query Prompt</label>
+                <textarea id="stepCadPrompt" rows="12" placeholder="Edit CadQuery generation prompt..."></textarea>
+              </div>
               <div id="threeDPanel" class="three-d">
                 <p id="threeDText">Approve a version, then generate STEP CAD.</p>
                 <iframe id="stepViewerFrame" title="STEP Viewer" class="step-viewer" src="/static/step_viewer.html" hidden></iframe>

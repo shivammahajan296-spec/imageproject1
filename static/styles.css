@@ -494,6 +494,22 @@ body {
   border-radius: 10px;
   background: #f4f6f8;
 }
+.cad-query-editor {
+  margin-bottom: 12px;
+}
+.cad-query-editor textarea {
+  width: 100%;
+  min-height: 240px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 0.92rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  line-height: 1.45;
+  background: #fff;
+  color: #2f2f2f;
+  resize: vertical;
+}
 
 .modal {
   position: fixed;
