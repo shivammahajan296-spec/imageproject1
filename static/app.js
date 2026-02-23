@@ -1111,6 +1111,7 @@ async function generateStepCad() {
           session_id: state.sessionId,
           cad_code: currentCode,
           error_detail: currentError,
+          prompt,
         });
       }
 

@@ -189,12 +189,14 @@ class CadModelGenerateRequest(BaseModel):
 class CadModelRunCodeRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=120)
     cad_code: str = Field(min_length=20, max_length=200000)
+    prompt: str | None = None
 
 
 class CadModelFixRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=120)
     cad_code: str = Field(min_length=20, max_length=200000)
     error_detail: str | None = None
+    prompt: str | None = None
 
 
 class CadModelGenerateResponse(BaseModel):

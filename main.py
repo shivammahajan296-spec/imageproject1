@@ -417,6 +417,18 @@ def _cache_cadstep_for_state(state, cad_code: str, code_file: str, step_file: st
             "step_file": step_file,
         },
     )
+    # Also persist an image-level cache entry so this approved image always has a STEP cache record.
+    image_only_key = _sha256_bytes(approved_blob)
+    _cache_json_put(
+        "cadstep_image",
+        image_only_key,
+        {
+            "cad_code": cad_code,
+            "code_file": code_file,
+            "step_file": step_file,
+            "prompt": prompt,
+        },
+    )
 
 
 @app.get("/health")
@@ -857,8 +869,13 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
     approved_blob = source_path.read_bytes()
     approved_mime = _detect_mime_from_bytes(approved_blob, hinted=mimetypes.guess_type(str(source_path))[0])
     normalized_prompt = re.sub(r"\s+", " ", payload.prompt.strip())
+    state.cad_model_prompt = payload.prompt.strip()
+    store.save(state)
     cad_cache_key = _sha256_text(f"{_sha256_bytes(approved_blob)}::{normalized_prompt}")
     cached_payload = _cache_json_get("cadstep", cad_cache_key)
+    if not cached_payload:
+        # Fallback: reuse latest successful STEP cache for the same approved image.
+        cached_payload = _cache_json_get("cadstep_image", _sha256_bytes(approved_blob))
     if cached_payload:
         code_file_cached = str(cached_payload.get("code_file", "")).strip()
         step_file_cached = str(cached_payload.get("step_file", "")).strip()
@@ -947,6 +964,9 @@ async def run_cad_model_code(payload: CadModelRunCodeRequest, request: Request) 
     limiter.check(request, "cad-model-run-code")
     state = store.get_or_create(payload.session_id)
     cad_code = (payload.cad_code or "").strip()
+    if payload.prompt and payload.prompt.strip():
+        state.cad_model_prompt = payload.prompt.strip()
+        store.save(state)
     if not cad_code:
         return _cad_failure_response(
             state=state,
@@ -985,6 +1005,9 @@ async def fix_cad_model_code(payload: CadModelFixRequest, request: Request) -> C
     req_api_key = _request_api_key(request)
 
     code = (payload.cad_code or "").strip()
+    if payload.prompt and payload.prompt.strip():
+        state.cad_model_prompt = payload.prompt.strip()
+        store.save(state)
     if not code:
         return _cad_failure_response(
             state=state,
