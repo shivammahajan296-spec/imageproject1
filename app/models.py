@@ -191,6 +191,13 @@ class CadModelRunCodeRequest(BaseModel):
     cad_code: str = Field(min_length=20, max_length=200000)
 
 
+class CadModelFixRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+    cad_code: str = Field(min_length=20, max_length=200000)
+    error_detail: str | None = None
+    max_attempts: int = Field(default=3, ge=1, le=6)
+
+
 class CadModelGenerateResponse(BaseModel):
     message: str
     success: bool = True
@@ -199,3 +206,4 @@ class CadModelGenerateResponse(BaseModel):
     step_file: str | None = None
     error_detail: str | None = None
     cached: bool = False
+    attempts: int | None = None

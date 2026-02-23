@@ -38,6 +38,7 @@ from app.models import (
     BriefUploadResponse,
     CadModelGenerateRequest,
     CadModelGenerateResponse,
+    CadModelFixRequest,
     CadModelRunCodeRequest,
     CadSheetGenerateRequest,
     CadSheetGenerateResponse,
@@ -307,8 +308,10 @@ def _resolve_relative_public_file(url_path: str) -> Path:
 def _run_generated_cad_script(script_text: str, session_id: str) -> tuple[str, str]:
     run_dir = CAD_RUN_DIR / f"{_safe_session_key(session_id)}-{uuid.uuid4().hex[:8]}"
     run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = run_dir.resolve()
     script_path = run_dir / "generated_cad.py"
     script_path.write_text(script_text, encoding="utf-8")
+    script_path = script_path.resolve()
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -340,6 +343,7 @@ def _cad_failure_response(
     cad_code: str,
     error_detail: str,
     cached: bool = False,
+    attempts: int | None = None,
 ) -> CadModelGenerateResponse:
     state.cad_model_code = cad_code
     state.cad_model_last_error = error_detail
@@ -354,7 +358,33 @@ def _cad_failure_response(
         step_file=None,
         error_detail=error_detail,
         cached=cached,
+        attempts=attempts,
     )
+
+
+def _execute_and_persist_cad_code(state, session_id: str, cad_code: str) -> tuple[bool, str | None, str | None, str | None]:
+    try:
+        _validate_cad_script(cad_code)
+    except HTTPException as exc:
+        return False, None, None, str(exc.detail)
+    try:
+        script_path, step_path = _run_generated_cad_script(cad_code, session_id)
+    except HTTPException as exc:
+        return False, None, None, str(exc.detail)
+
+    code_rel = "/" + str(Path(script_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
+    step_rel = "/" + str(Path(step_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
+    code_file = f"/session-files{code_rel}"
+    step_file = f"/session-files{step_rel}"
+
+    state.cad_model_code = cad_code
+    state.cad_model_last_error = None
+    state.cad_model_code_path = code_file
+    state.cad_step_file = step_file
+    if state.step < 7:
+        state.step = 7
+    store.save(state)
+    return True, code_file, step_file, None
 
 
 @app.get("/health")
@@ -847,32 +877,15 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
         )
 
     cad_code = _extract_python_code(llm_text)
-    try:
-        _validate_cad_script(cad_code)
-    except HTTPException as exc:
-        return _cad_failure_response(
-            state=state,
-            message="CAD generation failed during script validation.",
-            cad_code=cad_code,
-            error_detail=str(exc.detail),
-            cached=False,
-        )
-
-    try:
-        script_path, step_path = _run_generated_cad_script(cad_code, payload.session_id)
-    except HTTPException as exc:
+    ok, code_file, step_file, err = _execute_and_persist_cad_code(state, payload.session_id, cad_code)
+    if not ok:
         return _cad_failure_response(
             state=state,
             message="CAD execution failed. Fix code and retry.",
             cad_code=cad_code,
-            error_detail=str(exc.detail),
+            error_detail=err or "Unknown CAD execution failure.",
             cached=False,
         )
-
-    code_rel = "/" + str(Path(script_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
-    step_rel = "/" + str(Path(step_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
-    code_file = f"/session-files{code_rel}"
-    step_file = f"/session-files{step_rel}"
 
     _cache_json_put(
         "cadstep",
@@ -884,12 +897,6 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
         },
     )
     state.cad_model_prompt = payload.prompt
-    state.cad_model_code = cad_code
-    state.cad_model_last_error = None
-    state.cad_model_code_path = code_file
-    state.cad_step_file = step_file
-    if state.step < 7:
-        state.step = 7
     store.save(state)
 
     return CadModelGenerateResponse(
@@ -917,40 +924,15 @@ async def run_cad_model_code(payload: CadModelRunCodeRequest, request: Request) 
             cached=False,
         )
 
-    try:
-        _validate_cad_script(cad_code)
-    except HTTPException as exc:
-        return _cad_failure_response(
-            state=state,
-            message="CAD validation failed. Fix code and retry.",
-            cad_code=cad_code,
-            error_detail=str(exc.detail),
-            cached=False,
-        )
-
-    try:
-        script_path, step_path = _run_generated_cad_script(cad_code, payload.session_id)
-    except HTTPException as exc:
+    ok, code_file, step_file, err = _execute_and_persist_cad_code(state, payload.session_id, cad_code)
+    if not ok:
         return _cad_failure_response(
             state=state,
             message="CAD execution failed. Fix code and retry.",
             cad_code=cad_code,
-            error_detail=str(exc.detail),
+            error_detail=err or "Unknown CAD execution failure.",
             cached=False,
         )
-
-    code_rel = "/" + str(Path(script_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
-    step_rel = "/" + str(Path(step_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
-    code_file = f"/session-files{code_rel}"
-    step_file = f"/session-files{step_rel}"
-
-    state.cad_model_code = cad_code
-    state.cad_model_last_error = None
-    state.cad_model_code_path = code_file
-    state.cad_step_file = step_file
-    if state.step < 7:
-        state.step = 7
-    store.save(state)
 
     return CadModelGenerateResponse(
         message="CAD code executed successfully and STEP generated.",
@@ -960,6 +942,67 @@ async def run_cad_model_code(payload: CadModelRunCodeRequest, request: Request) 
         step_file=step_file,
         error_detail=None,
         cached=False,
+    )
+
+
+@app.post("/api/cad/model/fix-code", response_model=CadModelGenerateResponse)
+async def fix_cad_model_code(payload: CadModelFixRequest, request: Request) -> CadModelGenerateResponse:
+    limiter.check(request, "cad-model-fix-code")
+    state = store.get_or_create(payload.session_id)
+    req_api_key = _request_api_key(request)
+
+    code = (payload.cad_code or "").strip()
+    if not code:
+        return _cad_failure_response(
+            state=state,
+            message="No CAD code provided.",
+            cad_code="",
+            error_detail="CAD code is empty.",
+            attempts=0,
+        )
+
+    last_error = (payload.error_detail or state.cad_model_last_error or "").strip()
+    attempts_done = 0
+    for _ in range(payload.max_attempts):
+        attempts_done += 1
+        ok, code_file, step_file, err = _execute_and_persist_cad_code(state, payload.session_id, code)
+        if ok:
+            return CadModelGenerateResponse(
+                message=f"CAD code fixed and STEP generated in {attempts_done} attempt(s).",
+                success=True,
+                cad_code=code,
+                code_file=code_file,
+                step_file=step_file,
+                error_detail=None,
+                cached=False,
+                attempts=attempts_done,
+            )
+
+        last_error = err or last_error or "Unknown CAD execution failure."
+        fix_prompt = (
+            "Fix this CadQuery Python script so it executes successfully and exports at least one .step file.\n"
+            "Return only corrected Python code.\n\n"
+            f"Execution error:\n{last_error}\n\n"
+            "Current code:\n"
+            f"{code}"
+        )
+        llm_text = await straive.cad_codegen(
+            system_prompt=CAD_LLM_SYSTEM_PROMPT,
+            user_message=fix_prompt,
+            api_key_override=req_api_key,
+            image_bytes=None,
+            image_mime_type=None,
+        )
+        if not llm_text or not llm_text.strip():
+            break
+        code = _extract_python_code(llm_text)
+
+    return _cad_failure_response(
+        state=state,
+        message=f"Auto-fix did not produce a STEP file after {attempts_done} attempt(s).",
+        cad_code=code,
+        error_detail=last_error or "Auto-fix failed without error output.",
+        attempts=attempts_done,
     )
 
 

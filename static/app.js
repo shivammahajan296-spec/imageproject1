@@ -155,6 +155,7 @@ const el = {
   copyCadErrorBtn: document.getElementById("copyCadErrorBtn"),
   fixCadCodeTextarea: document.getElementById("fixCadCodeTextarea"),
   runFixCadCodeBtn: document.getElementById("runFixCadCodeBtn"),
+  autoFixCadCodeBtn: document.getElementById("autoFixCadCodeBtn"),
   stepCadProgress: document.getElementById("stepCadProgress"),
   stepCadProgressText: document.getElementById("stepCadProgressText"),
   stepViewerFrame: document.getElementById("stepViewerFrame"),
@@ -1079,6 +1080,39 @@ async function runFixCadCode() {
   }
 }
 
+async function autoFixCadCode() {
+  const code = (el.fixCadCodeTextarea.value || "").trim();
+  if (!code) {
+    addMessage("system", "Enter CAD code before running auto-fix.");
+    return;
+  }
+  setOperationLoading(true, "Running LLM auto-fix loop...");
+  setStepCadLoading(true, "LLM is fixing CAD code and retrying execution...");
+  try {
+    const res = await apiPost("/api/cad/model/fix-code", {
+      session_id: state.sessionId,
+      cad_code: code,
+      error_detail: (el.cadErrorText.value || "").trim(),
+      max_attempts: 4,
+    });
+    addMessage("assistant", res.message);
+    if (res.success && res.step_file) {
+      el.downloadCadCodeBtn.href = res.code_file;
+      el.downloadCadCodeBtn.hidden = false;
+      el.downloadStepBtn.href = res.step_file;
+      el.downloadStepBtn.hidden = false;
+      renderStepViewer(res.step_file);
+      hideCadExecutionIssue();
+    } else {
+      renderCadExecutionIssue(res.error_detail || "Auto-fix failed.", res.cad_code || code);
+    }
+    await refreshSession();
+  } finally {
+    setOperationLoading(false);
+    setStepCadLoading(false);
+  }
+}
+
 async function generateCadSheet() {
   if (!state.session?.approved_image_version) {
     addMessage("system", "Approve a version first before generating CAD drawing sheet.");
@@ -1210,6 +1244,13 @@ el.generateStepCadBtn.addEventListener("click", async () => {
 el.runFixCadCodeBtn.addEventListener("click", async () => {
   try {
     await runFixCadCode();
+  } catch (err) {
+    addMessage("system", err.message);
+  }
+});
+el.autoFixCadCodeBtn.addEventListener("click", async () => {
+  try {
+    await autoFixCadCode();
   } catch (err) {
     addMessage("system", err.message);
   }
