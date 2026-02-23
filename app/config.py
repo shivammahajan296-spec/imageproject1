@@ -8,6 +8,7 @@ class Settings:
     chat_url: str
     image_generate_url: str
     image_edit_url: str
+    cad_codegen_url: str
     model_name: str
     cors_origins: list[str]
     db_path: str
@@ -27,6 +28,10 @@ def load_settings() -> Settings:
         chat_url="https://llmfoundry.straive.com/openai/v1/chat/completions",
         image_generate_url="https://llmfoundry.straive.com/openai/v1/images/generations",
         image_edit_url="https://llmfoundry.straive.com/openai/v1/images/edits",
+        cad_codegen_url=os.getenv(
+            "CAD_CODEGEN_URL",
+            "https://llmfoundry.straivedemo.com/vertexai/google/models/gemini-2.5-pro:generateContent",
+        ),
         model_name=os.getenv("STRAIVE_MODEL", "gpt-4o-mini"),
         cors_origins=origins if origins else ["*"],
         db_path=os.getenv("APP_DB_PATH", "app.db"),

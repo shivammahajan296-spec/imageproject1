@@ -33,6 +33,7 @@ Set these before running:
 - `AUTO_INDEX_ASSETS` (optional, default `false`; if true, auto-indexes asset images during Step 3 baseline decision)
 - `CACHE_DIR` (optional, default `tmp_runtime/cache`)
 - `SESSION_IMAGES_DIR` (optional, default `tmp_runtime/session_images`)
+- `CAD_CODEGEN_URL` (optional, default `https://llmfoundry.straivedemo.com/vertexai/google/models/gemini-2.5-pro:generateContent`)
 - `LOG_LEVEL` (optional, default `INFO`)
 
 ## Per-User API Key Option

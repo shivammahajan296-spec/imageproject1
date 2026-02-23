@@ -798,9 +798,8 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
         + f"- Session spec summary: {spec_summary(state.spec)}\n"
         + "- Output a single executable Python script only."
     )
-    llm_text = await straive.chat(
+    llm_text = await straive.cad_codegen(
         system_prompt=CAD_LLM_SYSTEM_PROMPT,
-        history=[],
         user_message=user_prompt,
         api_key_override=req_api_key,
     )

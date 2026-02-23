@@ -70,6 +70,32 @@ class StraiveClient:
             logger.info("Straive chat response: %s", self._redact(data))
             return data.get("choices", [{}])[0].get("message", {}).get("content")
 
+    async def cad_codegen(
+        self,
+        system_prompt: str,
+        user_message: str,
+        api_key_override: str | None = None,
+    ) -> str | None:
+        if not (api_key_override or self.settings.straive_api_key):
+            return None
+
+        payload = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": user_message}]}],
+            "generationConfig": {"temperature": 0.1},
+        }
+        logger.info("Straive CAD codegen request: %s", self._redact(payload))
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(
+                self.settings.cad_codegen_url,
+                headers=self._headers(api_key_override=api_key_override),
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            logger.info("Straive CAD codegen response: %s", self._redact(data))
+            return self._extract_vertex_text(data)
+
     async def image_generate(self, prompt: str, api_key_override: str | None = None) -> dict[str, str]:
         if not (api_key_override or self.settings.straive_api_key):
             return self._fallback_image(prompt)
@@ -419,6 +445,25 @@ class StraiveClient:
                 except Exception:
                     pass
         return {}
+
+    @staticmethod
+    def _extract_vertex_text(data: dict[str, Any]) -> str | None:
+        try:
+            candidates = data.get("candidates", [])
+            if not isinstance(candidates, list) or not candidates:
+                return None
+            content = candidates[0].get("content", {})
+            parts = content.get("parts", [])
+            if not isinstance(parts, list):
+                return None
+            chunks: list[str] = []
+            for part in parts:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    chunks.append(part["text"])
+            text = "\n".join(chunks).strip()
+            return text or None
+        except Exception:
+            return None
 
     @staticmethod
     def _normalize_asset_metadata(data: dict[str, Any], image_path: Path) -> dict[str, Any]:
