@@ -923,14 +923,24 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
         + f"- Session spec summary: {spec_summary(state.spec)}\n"
         + "- Output a single executable Python script only."
     )
-    llm_text = await straive.cad_codegen(
-        provider=provider,
-        system_prompt=CAD_LLM_SYSTEM_PROMPT,
-        user_message=user_prompt,
-        api_key_override=req_api_key,
-        image_bytes=approved_blob,
-        image_mime_type=approved_mime,
-    )
+    try:
+        llm_text = await straive.cad_codegen(
+            provider=provider,
+            system_prompt=CAD_LLM_SYSTEM_PROMPT,
+            user_message=user_prompt,
+            api_key_override=req_api_key,
+            image_bytes=approved_blob,
+            image_mime_type=approved_mime,
+        )
+    except Exception as exc:
+        logger.error("CAD codegen provider call failed. provider=%s session=%s error=%s", provider, payload.session_id, exc)
+        return _cad_failure_response(
+            state=state,
+            message=f"CAD generation failed during {provider.upper()} provider call.",
+            cad_code="",
+            error_detail=f"{provider.upper()} provider request failed: {exc}",
+            cached=False,
+        )
     if not llm_text or not llm_text.strip():
         return _cad_failure_response(
             state=state,
@@ -1047,14 +1057,24 @@ async def fix_cad_model_code(payload: CadModelFixRequest, request: Request) -> C
         "Current code:\n"
         f"{code}"
     )
-    llm_text = await straive.cad_codegen(
-        provider=provider,
-        system_prompt=CAD_FIX_SYSTEM_PROMPT,
-        user_message=fix_prompt,
-        api_key_override=req_api_key,
-        image_bytes=None,
-        image_mime_type=None,
-    )
+    try:
+        llm_text = await straive.cad_codegen(
+            provider=provider,
+            system_prompt=CAD_FIX_SYSTEM_PROMPT,
+            user_message=fix_prompt,
+            api_key_override=req_api_key,
+            image_bytes=None,
+            image_mime_type=None,
+        )
+    except Exception as exc:
+        logger.error("CAD fix provider call failed. provider=%s session=%s error=%s", provider, payload.session_id, exc)
+        return _cad_failure_response(
+            state=state,
+            message=f"LLM fix failed during {provider.upper()} provider call.",
+            cad_code=code,
+            error_detail=f"{provider.upper()} provider request failed: {exc}",
+            attempts=1,
+        )
     if not llm_text or not llm_text.strip():
         return _cad_failure_response(
             state=state,

@@ -128,15 +128,23 @@ class StraiveClient:
         }
         logger.info("Straive CAD codegen request: %s", self._redact(payload))
         async with httpx.AsyncClient(timeout=90) as client:
-            resp = await client.post(
-                self.settings.cad_codegen_url,
-                headers=self._headers(api_key_override=api_key_override),
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            logger.info("Straive CAD codegen response: %s", self._redact(data))
-            return self._extract_vertex_text(data)
+            try:
+                resp = await client.post(
+                    self.settings.cad_codegen_url,
+                    headers=self._headers(api_key_override=api_key_override),
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                logger.info("Straive CAD codegen response: %s", self._redact(data))
+                return self._extract_vertex_text(data)
+            except httpx.HTTPStatusError as exc:
+                body = (exc.response.text or "")[:500]
+                raise RuntimeError(f"HTTP {exc.response.status_code} from Gemini provider: {body}") from exc
+            except httpx.TimeoutException as exc:
+                raise RuntimeError("Gemini provider timeout.") from exc
+            except httpx.HTTPError as exc:
+                raise RuntimeError(f"Gemini provider network error: {exc}") from exc
 
     async def _cad_codegen_gpt(
         self,
@@ -162,15 +170,23 @@ class StraiveClient:
         }
         logger.info("Straive CAD GPT request: %s", self._redact(payload))
         async with httpx.AsyncClient(timeout=90) as client:
-            resp = await client.post(
-                self.settings.chat_url,
-                headers=self._headers(api_key_override=api_key_override),
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            logger.info("Straive CAD GPT response: %s", self._redact(data))
-            return self._extract_openai_text(data)
+            try:
+                resp = await client.post(
+                    self.settings.chat_url,
+                    headers=self._headers(api_key_override=api_key_override),
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                logger.info("Straive CAD GPT response: %s", self._redact(data))
+                return self._extract_openai_text(data)
+            except httpx.HTTPStatusError as exc:
+                body = (exc.response.text or "")[:500]
+                raise RuntimeError(f"HTTP {exc.response.status_code} from GPT provider: {body}") from exc
+            except httpx.TimeoutException as exc:
+                raise RuntimeError("GPT provider timeout.") from exc
+            except httpx.HTTPError as exc:
+                raise RuntimeError(f"GPT provider network error: {exc}") from exc
 
     async def image_generate(self, prompt: str, api_key_override: str | None = None) -> dict[str, str]:
         if not (api_key_override or self.settings.straive_api_key):
