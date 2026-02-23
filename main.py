@@ -765,6 +765,7 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
         raise HTTPException(status_code=404, detail="Approved source image file is missing on disk.")
 
     approved_blob = source_path.read_bytes()
+    approved_mime = _detect_mime_from_bytes(approved_blob, hinted=mimetypes.guess_type(str(source_path))[0])
     normalized_prompt = re.sub(r"\s+", " ", payload.prompt.strip())
     cad_cache_key = _sha256_text(f"{_sha256_bytes(approved_blob)}::{normalized_prompt}")
     cached_payload = _cache_json_get("cadstep", cad_cache_key)
@@ -802,6 +803,8 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
         system_prompt=CAD_LLM_SYSTEM_PROMPT,
         user_message=user_prompt,
         api_key_override=req_api_key,
+        image_bytes=approved_blob,
+        image_mime_type=approved_mime,
     )
     if not llm_text or not llm_text.strip():
         raise HTTPException(status_code=502, detail="LLM returned empty CAD script output.")

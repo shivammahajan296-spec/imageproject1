@@ -75,14 +75,27 @@ class StraiveClient:
         system_prompt: str,
         user_message: str,
         api_key_override: str | None = None,
+        image_bytes: bytes | None = None,
+        image_mime_type: str | None = None,
     ) -> str | None:
         if not (api_key_override or self.settings.straive_api_key):
             return None
 
+        merged_prompt = f"{system_prompt.strip()}\n\n{user_message.strip()}".strip()
+        parts: list[dict[str, Any]] = [{"text": merged_prompt}]
+        if image_bytes:
+            parts.append(
+                {
+                    "inline_data": {
+                        "mime_type": image_mime_type or "image/png",
+                        "data": base64.b64encode(image_bytes).decode("utf-8"),
+                    }
+                }
+            )
+
         payload = {
-            "systemInstruction": {"parts": [{"text": system_prompt}]},
-            "contents": [{"role": "user", "parts": [{"text": user_message}]}],
-            "generationConfig": {"temperature": 0.1},
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4096},
         }
         logger.info("Straive CAD codegen request: %s", self._redact(payload))
         async with httpx.AsyncClient(timeout=90) as client:
