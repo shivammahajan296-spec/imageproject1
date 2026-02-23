@@ -1086,14 +1086,13 @@ async function autoFixCadCode() {
     addMessage("system", "Enter CAD code before running auto-fix.");
     return;
   }
-  setOperationLoading(true, "Running LLM auto-fix loop...");
-  setStepCadLoading(true, "LLM is fixing CAD code and retrying execution...");
+  setOperationLoading(true, "Running LLM fix...");
+  setStepCadLoading(true, "LLM is fixing code and executing one attempt...");
   try {
     const res = await apiPost("/api/cad/model/fix-code", {
       session_id: state.sessionId,
       cad_code: code,
       error_detail: (el.cadErrorText.value || "").trim(),
-      max_attempts: 4,
     });
     addMessage("assistant", res.message);
     if (res.success && res.step_file) {

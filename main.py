@@ -962,47 +962,49 @@ async def fix_cad_model_code(payload: CadModelFixRequest, request: Request) -> C
         )
 
     last_error = (payload.error_detail or state.cad_model_last_error or "").strip()
-    attempts_done = 0
-    for _ in range(payload.max_attempts):
-        attempts_done += 1
-        ok, code_file, step_file, err = _execute_and_persist_cad_code(state, payload.session_id, code)
-        if ok:
-            return CadModelGenerateResponse(
-                message=f"CAD code fixed and STEP generated in {attempts_done} attempt(s).",
-                success=True,
-                cad_code=code,
-                code_file=code_file,
-                step_file=step_file,
-                error_detail=None,
-                cached=False,
-                attempts=attempts_done,
-            )
+    fix_prompt = (
+        "Fix this CadQuery Python script so it executes successfully and exports at least one .step file.\n"
+        "Return only corrected Python code.\n\n"
+        f"Execution error:\n{last_error or 'Unknown CAD execution failure.'}\n\n"
+        "Current code:\n"
+        f"{code}"
+    )
+    llm_text = await straive.cad_codegen(
+        system_prompt=CAD_LLM_SYSTEM_PROMPT,
+        user_message=fix_prompt,
+        api_key_override=req_api_key,
+        image_bytes=None,
+        image_mime_type=None,
+    )
+    if not llm_text or not llm_text.strip():
+        return _cad_failure_response(
+            state=state,
+            message="LLM fix returned empty output.",
+            cad_code=code,
+            error_detail=last_error or "LLM did not return corrected code.",
+            attempts=1,
+        )
 
-        last_error = err or last_error or "Unknown CAD execution failure."
-        fix_prompt = (
-            "Fix this CadQuery Python script so it executes successfully and exports at least one .step file.\n"
-            "Return only corrected Python code.\n\n"
-            f"Execution error:\n{last_error}\n\n"
-            "Current code:\n"
-            f"{code}"
+    fixed_code = _extract_python_code(llm_text)
+    ok, code_file, step_file, err = _execute_and_persist_cad_code(state, payload.session_id, fixed_code)
+    if ok:
+        return CadModelGenerateResponse(
+            message="CAD code fixed and STEP generated.",
+            success=True,
+            cad_code=fixed_code,
+            code_file=code_file,
+            step_file=step_file,
+            error_detail=None,
+            cached=False,
+            attempts=1,
         )
-        llm_text = await straive.cad_codegen(
-            system_prompt=CAD_LLM_SYSTEM_PROMPT,
-            user_message=fix_prompt,
-            api_key_override=req_api_key,
-            image_bytes=None,
-            image_mime_type=None,
-        )
-        if not llm_text or not llm_text.strip():
-            break
-        code = _extract_python_code(llm_text)
 
     return _cad_failure_response(
         state=state,
-        message=f"Auto-fix did not produce a STEP file after {attempts_done} attempt(s).",
-        cad_code=code,
-        error_detail=last_error or "Auto-fix failed without error output.",
-        attempts=attempts_done,
+        message="LLM fix attempt failed. Review new code/error and run LLM fix again.",
+        cad_code=fixed_code,
+        error_detail=err or "Unknown CAD execution failure.",
+        attempts=1,
     )
 
 
