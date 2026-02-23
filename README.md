@@ -31,6 +31,8 @@ Set these before running:
 - `APP_DB_PATH` (optional, default `app.db`)
 - `ASSETS_DIR` (optional, default `assets`)
 - `AUTO_INDEX_ASSETS` (optional, default `false`; if true, auto-indexes asset images during Step 3 baseline decision)
+- `CACHE_DIR` (optional, default `/tmp/pack_design_cache`)
+- `SESSION_IMAGES_DIR` (optional, default `/tmp/pack_design_session_images`)
 - `LOG_LEVEL` (optional, default `INFO`)
 
 ## Per-User API Key Option
@@ -48,6 +50,9 @@ uvicorn main:app --reload --port 8000
 ```
 1
 Open: [http://localhost:8000](http://localhost:8000)
+
+Note for `--reload`:
+- Runtime-generated files are written to `/tmp` by default to avoid uvicorn auto-reload interruptions during long CAD generation requests.
 
 Put reusable reference images in:
 - `assets/` (or the folder configured by `ASSETS_DIR`)

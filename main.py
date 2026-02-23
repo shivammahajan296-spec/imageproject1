@@ -90,7 +90,8 @@ STRICT_MESSAGES = {
 }
 BASELINE_SEARCH_MSG = "Searching for a similar baseline design…"
 BASELINE_NEW_MSG = "No close baseline found. Creating a new concept."
-SESSION_IMAGE_DIR = Path("session_images")
+SESSION_IMAGE_DIR = Path(settings.session_images_dir)
+SESSION_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 CAD_RUN_DIR = SESSION_IMAGE_DIR / "cad_runs"
 CAD_RUN_DIR.mkdir(parents=True, exist_ok=True)
 CAD_LLM_SYSTEM_PROMPT = (
