@@ -25,11 +25,11 @@ STEP 4: 2D design iteration only. Use existing 2D visual as reference.
 For requested changes, refine consistently and do not restart design.
 Do not discuss 3D generation in this step.
 
-STEP 5: Design approval confirmation. Ask user to approve a version from Edit Studio before 3D generation.
+STEP 5: Design approval confirmation. Ask user to approve a version from Edit Studio before CAD generation.
 
-STEP 6: 3D generation readiness. Once a version is approved, guide the user to run TripoSR conversion.
+STEP 6: CAD generation readiness. Once a version is approved, guide the user to generate STEP CAD.
 
-STEP 7: Final output. Confirm 3D preview is generated and available in the viewer/download link.
+STEP 7: Final output. Confirm STEP CAD is generated and available in the viewer/download link.
 
 Behavior:
 - Act as a senior packaging engineer, not a generic chatbot.
@@ -213,7 +213,7 @@ def handle_chat_turn(state: SessionState, user_message: str) -> tuple[str, dict[
         elif any(w in user_message.lower() for w in ["lock", "final", "ready", "freeze"]):
             state.step = 5
             state.lock_question_asked = True
-            assistant_message = "Please approve a version from Version History, then generate the 3D preview."
+            assistant_message = "Please approve a version from Version History, then generate the STEP CAD model."
         else:
             assistant_message = (
                 "I captured your iteration request. Use Iterate Design to refine the current 2D reference while preserving design consistency."
@@ -222,21 +222,21 @@ def handle_chat_turn(state: SessionState, user_message: str) -> tuple[str, dict[
     elif state.step == 5:
         if state.approved_image_version:
             state.step = 6
-            assistant_message = "Approved version is set. 3D preview generation is enabled."
+            assistant_message = "Approved version is set. STEP CAD generation is enabled."
         elif _is_confirm(user_message):
             assistant_message = "Please click Approve on a version in Edit Studio first."
         else:
             assistant_message = "Understood. Continue iterating or approve a version from Edit Studio when ready."
 
     elif state.step == 6:
-        if state.preview_3d_file:
+        if state.cad_step_file:
             state.step = 7
-            assistant_message = "Final 3D preview is available in Approve & 3D."
+            assistant_message = "Final STEP CAD is available in Approve & 3D."
         else:
-            assistant_message = "3D preview generation is enabled."
+            assistant_message = "STEP CAD generation is enabled."
 
     elif state.step == 7:
-        assistant_message = "Final 3D preview is available."
+        assistant_message = "Final STEP CAD is available."
 
     if assistant_message:
         state.history.append({"role": "assistant", "content": assistant_message})

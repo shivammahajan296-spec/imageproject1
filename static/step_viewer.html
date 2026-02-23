@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>STEP Viewer</title>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #f4f6f8; }
+      #status {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 4;
+        padding: 6px 10px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.92);
+        font: 12px/1.2 "Segoe UI", Arial, sans-serif;
+        color: #505a64;
+      }
+      canvas { display: block; }
+    </style>
+  </head>
+  <body>
+    <div id="status">Waiting for STEP file...</div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.12/dist/occt-import-js.js"></script>
+    <script>
+      let occt = null;
+      let currentModel = null;
+      let scene;
+      let camera;
+      let renderer;
+      let controls;
+      const statusEl = document.getElementById("status");
+
+      function setStatus(msg) {
+        statusEl.textContent = msg;
+      }
+
+      function setupScene() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf4f6f8);
+        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 5000);
+        camera.position.set(150, 120, 150);
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio || 1);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+        const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+        dir.position.set(120, 120, 80);
+        scene.add(dir);
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+        if (controls) controls.update();
+        if (renderer && scene && camera) renderer.render(scene, camera);
+      }
+
+      async function loadStepFromUrl(url) {
+        if (!occt) {
+          setStatus("OCCT engine not ready.");
+          return;
+        }
+        if (!url) {
+          setStatus("No STEP URL provided.");
+          return;
+        }
+        setStatus("Loading STEP file...");
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Failed to fetch STEP file.");
+        const fileBuffer = new Uint8Array(await response.arrayBuffer());
+        const result = occt.ReadStepFile(fileBuffer);
+        if (currentModel) scene.remove(currentModel);
+        currentModel = new THREE.Group();
+
+        result.meshes.forEach((meshData) => {
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute("position", new THREE.Float32BufferAttribute(meshData.attributes.position.array, 3));
+          if (meshData.attributes.normal) {
+            geometry.setAttribute("normal", new THREE.Float32BufferAttribute(meshData.attributes.normal.array, 3));
+          }
+          geometry.setIndex(new THREE.Uint32BufferAttribute(meshData.index.array, 1));
+          const material = new THREE.MeshStandardMaterial({
+            color: 0x95a5a6,
+            metalness: 0.65,
+            roughness: 0.35,
+            side: THREE.DoubleSide,
+          });
+          const mesh = new THREE.Mesh(geometry, material);
+          const edges = new THREE.EdgesGeometry(geometry);
+          const lines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x2c3e50 }));
+          mesh.add(lines);
+          currentModel.add(mesh);
+        });
+
+        scene.add(currentModel);
+        const box = new THREE.Box3().setFromObject(currentModel);
+        const size = box.getSize(new THREE.Vector3()).length();
+        const center = box.getCenter(new THREE.Vector3());
+        controls.target.copy(center);
+        camera.position.copy(center).add(new THREE.Vector3(size, size, size));
+        camera.far = Math.max(2000, size * 10);
+        camera.updateProjectionMatrix();
+        setStatus("STEP file loaded.");
+      }
+
+      setupScene();
+      animate();
+      occtimportjs().then((library) => {
+        occt = library;
+        setStatus("Engine ready.");
+      }).catch((err) => {
+        setStatus(`Engine init failed: ${err.message}`);
+      });
+
+      window.addEventListener("message", async (event) => {
+        if (!event || !event.data || event.data.type !== "load-step") return;
+        try {
+          await loadStepFromUrl(event.data.url);
+        } catch (err) {
+          setStatus(`Failed: ${err.message}`);
+        }
+      });
+
+      window.addEventListener("resize", () => {
+        if (!camera || !renderer) return;
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    </script>
+  </body>
+</html>

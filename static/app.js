@@ -13,6 +13,8 @@ const BASELINE_DECISION_MESSAGES = new Set([
 ]);
 const DEFAULT_CAD_SHEET_PROMPT =
   "You are generating a technical mechanical CAD drawing sheet.\n\nUse the provided product image as geometry reference only.\nDo NOT recreate the photo.\nConvert the object into a formal engineering drawing sheet.\n\nSHEET FORMAT (STRICT):\nA3 landscape (420mm × 297mm)\nAspect ratio locked\n20mm outer border\nWhite background\nBlack thin drafting lines only\nEntire sheet must be fully visible\nOrthographic straight camera\nNo perspective\nNo zoom\nNo cropping\n\nLAYOUT (DO NOT CHANGE):\n\nTop Row:\nLeft: Front View\nCenter: Right Side View\nRight: Exploded View\n\nBottom Row:\nLeft: Top View\nCenter: Section A-A (vertical center cut)\nRight: Isometric View\n\nViews must stay inside their grid areas.\nNo overlapping.\nNo dynamic repositioning.\n\nENGINEERING DETAILS:\n• Centerlines\n• Hidden lines\n• Dimension lines with arrowheads\n• Units in millimeters\n• Wall thickness callouts if hollow\n• Thread representation if applicable\n• Material labels inferred from image\n• Standard tolerance ±0.1 mm\n• Third-angle projection symbol\n• Title block bottom-right\n• Scale 1:1\n\nIMPORTANT:\nLayout must remain fixed.\nOnly geometry changes per object.\nThe entire A3 sheet must be visible inside the image frame.\nThe entire sheet must be rendered as a fully visible flat document, centered in the frame with clear white space surrounding all four edges. Absolutely no cropping, zooming, clipping, edge-touching, or partial cutoff is permitted — the full outer border, title block, and all margins must remain completely visible inside the image boundaries.";
+const DEFAULT_STEP_CAD_PROMPT =
+  "You are a senior mechanical CAD engineer and geometric reconstruction specialist.\n\nYour task is to analyze the provided product image and generate a fully parametric, manufacturable 3D CAD model exported as a STEP (.stp / .step) file.\n\nCRITICAL RULES:\n- Do NOT recreate the image.\n- Convert visible geometry into engineering solids.\n- No mesh or STL triangulation.\n- Only closed BREP solids.\n- Real-world manufacturable geometry only.\n\nSTEP 1 — GEOMETRY ANALYSIS\n- Identify object type\n- Detect symmetry (axial / planar / none)\n- Identify primitives (cylinder, cone, revolve, loft, extrude)\n- Detect grooves, ribs, fillets, chamfers\n- Detect hollow areas\n- Detect threads if present\n- Detect assembly parts\n- Infer realistic industrial dimensions if scale is unknown\n\nSTEP 2 — PARAMETRIC MODEL CREATION\nCreate parametric variables for overall height, outer diameter/width, wall thickness, groove depth, fillet radius, chamfer size, thread pitch.\nAll units in mm. Tolerance ±0.1 mm.\n\nSTEP 3 — ADVANCED FEATURES\nIf grooves visible, model using revolved cuts/sweeps.\nIf threads visible, use helical thread with clearance.\nIf hollow, maintain minimum wall thickness 2 mm.\nIf multipart, create separate solids.\n\nSTEP 4 — VALIDATION\nEnsure closed solids, no non-manifold edges, manufacturable wall thickness.\n\nSTEP 5 — OUTPUT\nReturn only executable CadQuery Python script that exports a STEP file.";
 const INTEL_DATA = {
   cost: {
     estimatedUnit: 8.4,
@@ -144,14 +146,15 @@ const el = {
   cadSheetProgressText: document.getElementById("cadSheetProgressText"),
   cadSheetPreview: document.getElementById("cadSheetPreview"),
   cadSheetPlaceholder: document.getElementById("cadSheetPlaceholder"),
-  generate3dPreviewBtn: document.getElementById("generate3dPreviewBtn"),
-  open3dPreviewLink: document.getElementById("open3dPreviewLink"),
-  preview3dProgress: document.getElementById("preview3dProgress"),
-  preview3dProgressText: document.getElementById("preview3dProgressText"),
+  generateStepCadBtn: document.getElementById("generateStepCadBtn"),
+  downloadCadCodeBtn: document.getElementById("downloadCadCodeBtn"),
+  downloadStepBtn: document.getElementById("downloadStepBtn"),
+  stepCadProgress: document.getElementById("stepCadProgress"),
+  stepCadProgressText: document.getElementById("stepCadProgressText"),
+  stepViewerFrame: document.getElementById("stepViewerFrame"),
   approvedImagePreview: document.getElementById("approvedImagePreview"),
   approvalStatus: document.getElementById("approvalStatus"),
   threeDText: document.getElementById("threeDText"),
-  modelViewer: document.getElementById("modelViewer"),
   indexAssetsBtn: document.getElementById("indexAssetsBtn"),
   indexStatusBox: document.getElementById("indexStatusBox"),
   uploadBriefBtn: document.getElementById("uploadBriefBtn"),
@@ -306,7 +309,7 @@ function applyActionAvailability() {
   const canGenerate2D = s.step >= 3 && !hasImages;
   const canGenerateCadSheet = Boolean(s.approved_image_version && !operationInFlight);
   const canProceedTo3D = Boolean(s.cad_sheet_image_url_or_base64);
-  const canGenerate3D = Boolean(s.approved_image_version && !operationInFlight);
+  const canGenerateStepCad = Boolean(s.approved_image_version && !operationInFlight);
 
   el.generate2dBtn.disabled = operationInFlight || !canGenerate2D;
   // Keep Run Edit clickable so click handler can always provide deterministic feedback.
@@ -315,7 +318,7 @@ function applyActionAvailability() {
   el.approveCurrentForCadBtn.disabled = !canApproveCurrent;
   el.generateCadSheetBtn.disabled = !canGenerateCadSheet;
   el.proceedTo3dBtn.disabled = !canProceedTo3D;
-  el.generate3dPreviewBtn.disabled = !canGenerate3D;
+  el.generateStepCadBtn.disabled = !canGenerateStepCad;
 }
 
 function renderApprovedImage(sessionState) {
@@ -338,18 +341,28 @@ function renderApprovedImage(sessionState) {
   el.cadApprovedImagePreview.hidden = false;
 }
 
-function render3DViewer(previewFile) {
-  if (!previewFile) {
-    el.modelViewer.style.display = "none";
-    el.modelViewer.removeAttribute("src");
+function renderStepViewer(stepFile) {
+  if (!stepFile) {
+    el.stepViewerFrame.hidden = true;
+    el.downloadStepBtn.hidden = true;
+    el.downloadCadCodeBtn.hidden = true;
+    el.downloadStepBtn.removeAttribute("href");
+    el.downloadCadCodeBtn.removeAttribute("href");
     return;
   }
-  if (previewFile.toLowerCase().endsWith(".glb")) {
-    el.modelViewer.src = previewFile;
-    el.modelViewer.style.display = "block";
-    return;
+  el.stepViewerFrame.hidden = false;
+  el.downloadStepBtn.hidden = false;
+  el.downloadStepBtn.href = stepFile;
+  // Ensure iframe receives load command once it is ready.
+  const msg = { type: "load-step", url: stepFile };
+  try {
+    el.stepViewerFrame.contentWindow?.postMessage(msg, "*");
+  } catch (err) {
+    // no-op; onload handler below will retry
   }
-  el.modelViewer.style.display = "none";
+  el.stepViewerFrame.onload = () => {
+    el.stepViewerFrame.contentWindow?.postMessage(msg, "*");
+  };
 }
 
 function renderCadSheetPreview(src) {
@@ -729,14 +742,25 @@ function updateFromSession(s) {
   el.cadSheetPrompt.value = buildCadPromptFromSpec(cadSpecState);
   renderCadSheetPreview(s.cad_sheet_image_url_or_base64);
 
-  el.threeDText.textContent = s.preview_3d_file
-    ? `3D preview is ready from approved version v${s.approved_image_version || "-"}.`
-    : "Approve a version, then run TripoSR 2D->3D conversion.";
-  el.open3dPreviewLink.hidden = !s.preview_3d_file;
-  if (s.preview_3d_file) {
-    el.open3dPreviewLink.href = s.preview_3d_file;
+  if (s.cad_model_code_path) {
+    el.downloadCadCodeBtn.href = s.cad_model_code_path;
+    el.downloadCadCodeBtn.hidden = false;
+  } else {
+    el.downloadCadCodeBtn.hidden = true;
+    el.downloadCadCodeBtn.removeAttribute("href");
   }
-  render3DViewer(s.preview_3d_file);
+  if (s.cad_step_file) {
+    el.downloadStepBtn.href = s.cad_step_file;
+    el.downloadStepBtn.hidden = false;
+  } else {
+    el.downloadStepBtn.hidden = true;
+    el.downloadStepBtn.removeAttribute("href");
+  }
+  renderStepViewer(s.cad_step_file);
+
+  el.threeDText.textContent = s.cad_step_file
+    ? `STEP model is ready from approved version v${s.approved_image_version || "-"}.`
+    : "Approve a version, then generate STEP CAD.";
 
   const allowed = computeAllowedScreen(s.step, hasBaselineMatch, hasImages, hasApproved);
   el.tab2.disabled = allowed < 2;
@@ -855,7 +879,6 @@ async function generate2D() {
       state.session.lock_confirmed = false;
       state.session.lock_question_asked = false;
       state.session.design_summary = null;
-      state.session.preview_3d_file = null;
       state.session.approved_image_id = null;
       state.session.approved_image_version = null;
       state.session.approved_image_local_path = null;
@@ -913,10 +936,10 @@ async function runManualEdit() {
   }
 }
 
-function setPreview3DLoading(isLoading, text = "Generating 3D preview...") {
-  el.preview3dProgress.hidden = !isLoading;
+function setStepCadLoading(isLoading, text = "Generating CAD code and STEP file...") {
+  el.stepCadProgress.hidden = !isLoading;
   if (isLoading) {
-    el.preview3dProgressText.textContent = text;
+    el.stepCadProgressText.textContent = text;
   }
 }
 
@@ -924,6 +947,34 @@ function setCadSheetLoading(isLoading, text = "Generating CAD drawing sheet...")
   el.cadSheetProgress.hidden = !isLoading;
   if (isLoading) {
     el.cadSheetProgressText.textContent = text;
+  }
+}
+
+async function generateStepCad() {
+  if (!state.session?.approved_image_version) {
+    addMessage("system", "Approve a version first before generating STEP CAD.");
+    return;
+  }
+  const prompt = window.prompt("STEP CAD generation prompt", DEFAULT_STEP_CAD_PROMPT);
+  if (!prompt) return;
+  setOperationLoading(true, "Generating CAD code and STEP file...");
+  setStepCadLoading(true, "Running CAD reconstruction and STEP export...");
+  addMessage("system", "Generating parametric CAD code and STEP file...");
+  try {
+    const res = await apiPost("/api/cad/model/generate", {
+      session_id: state.sessionId,
+      prompt,
+    });
+    addMessage("assistant", `${res.message}${res.cached ? " (cache hit)" : ""}`);
+    el.downloadCadCodeBtn.href = res.code_file;
+    el.downloadCadCodeBtn.hidden = false;
+    el.downloadStepBtn.href = res.step_file;
+    el.downloadStepBtn.hidden = false;
+    renderStepViewer(res.step_file);
+    await refreshSession();
+  } finally {
+    setOperationLoading(false);
+    setStepCadLoading(false);
   }
 }
 
@@ -951,20 +1002,6 @@ async function generateCadSheet() {
   } finally {
     setOperationLoading(false);
     setCadSheetLoading(false);
-  }
-}
-
-async function generate3DPreview() {
-  setOperationLoading(true, "Preparing 3D generation...");
-  setPreview3DLoading(true, "Generating 3D preview using TripoSR...");
-  addMessage("system", "Generating 3D preview from approved version...");
-  try {
-    const res = await apiPost("/api/preview3d/generate", { session_id: state.sessionId });
-    addMessage("assistant", `${res.message}`);
-    await refreshSession();
-  } finally {
-    setOperationLoading(false);
-    setPreview3DLoading(false);
   }
 }
 
@@ -1062,9 +1099,9 @@ el.applyManualBtn.addEventListener("click", async () => {
   }
 });
 
-el.generate3dPreviewBtn.addEventListener("click", async () => {
+el.generateStepCadBtn.addEventListener("click", async () => {
   try {
-    await generate3DPreview();
+    await generateStepCad();
   } catch (err) {
     addMessage("system", err.message);
   }

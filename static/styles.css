@@ -487,6 +487,13 @@ body {
   background: radial-gradient(circle at 30% 30%, #ffffff, #f3f3f3);
   color: var(--text-muted); padding: 12px; text-align: center;
 }
+.step-viewer {
+  width: 100%;
+  height: 360px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f4f6f8;
+}
 
 .modal {
   position: fixed;

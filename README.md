@@ -1,11 +1,12 @@
 # AI-Powered Intelligent Pack Design
 
-Production-oriented FastAPI + vanilla JS app that enforces a strict packaging-engineering workflow from concept to approved 3D preview.
+Production-oriented FastAPI + vanilla JS app that enforces a strict packaging-engineering workflow from concept to approved STEP CAD.
 
 ## Features
 - Strict 7-step state-machine workflow (never jumps ahead).
 - Backend-only integration with Straive LLM Foundry endpoints.
-- Chat + image generation/edit + TripoSR 3D preview APIs.
+- Chat + image generation/edit APIs.
+- LLM-generated CadQuery script + STEP export with server-side cache and in-app STEP viewer.
 - Asset baseline search from local `assets/` images using AI-generated metadata.
 - Session persistence in SQLite.
 - Request validation, rate limiting, redacted logging, CORS.
@@ -19,7 +20,7 @@ Production-oriented FastAPI + vanilla JS app that enforces a strict packaging-en
 - Backend: FastAPI
 - Frontend: HTML/CSS/JS
 - AI Gateway: Straive LLM Foundry
-- 3D conversion: TripoSR (approved 2D image -> 3D preview file)
+- CAD kernel scripting: CadQuery (LLM-generated script executed server-side to export STEP)
 
 ## Environment Variables
 Set these before running:
@@ -30,8 +31,6 @@ Set these before running:
 - `APP_DB_PATH` (optional, default `app.db`)
 - `ASSETS_DIR` (optional, default `assets`)
 - `AUTO_INDEX_ASSETS` (optional, default `false`; if true, auto-indexes asset images during Step 3 baseline decision)
-- `TRIPOSR_COMMAND` (required for 3D generation; example: `python run.py --input {input} --output-dir {output_dir}`)
-- `TRIPOSR_OUTPUT_DIR` (optional, default `preview_3d`)
 - `LOG_LEVEL` (optional, default `INFO`)
 
 ## Per-User API Key Option
@@ -67,10 +66,14 @@ Put reusable reference images in:
   - Input: `{ session_id, version }`
   - Output: `{ message, approved_version }`
   - Action: marks a version from history as approved source for 3D conversion
-- `POST /api/preview3d/generate`
-  - Input: `{ session_id }`
-  - Output: `{ message, preview_file }`
-  - Action: generates 3D preview from the approved version image using TripoSR
+- `POST /api/cad/model/generate`
+  - Input: `{ session_id, prompt }`
+  - Output: `{ message, cad_code, code_file, step_file, cached }`
+  - Action: sends prompt to Straive chat, generates CadQuery script, executes export to `.step`, caches by approved-image hash + prompt, and returns downloadable files.
+- `POST /api/cache/clear`
+  - Input: `{}`
+  - Output: `{ message, removed_files }`
+  - Action: clears image/CAD cache entries.
 - `GET /api/session/{session_id}`
   - Output: full session state
 - `POST /api/brief/upload` (multipart form-data)
@@ -80,7 +83,7 @@ Put reusable reference images in:
 - `POST /api/session/clear`
   - Input: `{ session_id }`
   - Output: `{ message }`
-  - Action: clears chat/spec/baseline/images/approvals/3D preview state for the session
+  - Action: clears chat/spec/baseline/images/approvals/CAD state for the session
 - `GET /api/recommendations/{session_id}`
   - Output: `{ count, recommendations }`
   - Action: returns suggested visual refinements for Edit Studio
@@ -98,8 +101,8 @@ Put reusable reference images in:
 3. Baseline decision statement.
 4. 2D visual iteration only.
 5. Approve one version from Edit Studio.
-6. Generate 3D preview via TripoSR from the approved version image.
-7. View/open the generated 3D file.
+6. Generate STEP CAD from the approved version image.
+7. View/open the generated STEP file and download CAD code.
 
 ## Example Session Walkthrough
 1. User: "Need a cosmetic jar, 50 ml, PP, screw cap, matte premium look"
@@ -109,11 +112,11 @@ Put reusable reference images in:
 3. User clicks `Generate 2D Concept`.
 4. User iterates: "cap taller, matte texture" and clicks `Run Edit`.
 5. User approves a specific version in Version History.
-6. User goes to Approve & 3D and clicks `Generate 3D Preview (TripoSR)`.
-7. User opens the generated preview file (and GLB renders inline in 3D viewer when available).
+6. User goes to Approve & 3D and clicks `Generate STEP CAD`.
+7. User downloads CAD Python code and STEP file, and views STEP in the in-app viewer.
 
 ## Notes
 - Frontend never calls Straive directly.
 - All Straive requests are server-side.
 - If `STRAIVE_API_KEY` is missing, image endpoints return a safe placeholder preview for local testing.
-- Approve & 3D screen is TripoSR-based (approve a version, then generate 3D preview).
+- Approve & 3D uses LLM-generated STEP CAD (with Three.js + OCCT viewer).

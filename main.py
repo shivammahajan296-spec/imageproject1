@@ -7,9 +7,10 @@ import imghdr
 import json
 import logging
 import mimetypes
+import os
 import re
-import shlex
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -35,10 +36,10 @@ from app.models import (
     CacheClearResponse,
     EditRecommendationsResponse,
     BriefUploadResponse,
+    CadModelGenerateRequest,
+    CadModelGenerateResponse,
     CadSheetGenerateRequest,
     CadSheetGenerateResponse,
-    Preview3DGenerateRequest,
-    Preview3DGenerateResponse,
     VersionApproveRequest,
     VersionApproveResponse,
     ImageEditRequest,
@@ -63,7 +64,6 @@ from app.workflow import (
 )
 
 settings = load_settings()
-Path(settings.triposr_output_dir).mkdir(parents=True, exist_ok=True)
 CACHE_DIR = Path(settings.cache_dir)
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
@@ -86,11 +86,20 @@ limiter = SimpleRateLimiter(max_requests=120, window_seconds=60)
 STRICT_MESSAGES = {
     "Searching for a similar baseline design…",
     "No close baseline found. Creating a new concept.",
-    "Please approve a version from Version History, then generate the 3D preview.",
+    "Please approve a version from Version History, then generate the STEP CAD model.",
 }
 BASELINE_SEARCH_MSG = "Searching for a similar baseline design…"
 BASELINE_NEW_MSG = "No close baseline found. Creating a new concept."
 SESSION_IMAGE_DIR = Path("session_images")
+CAD_RUN_DIR = SESSION_IMAGE_DIR / "cad_runs"
+CAD_RUN_DIR.mkdir(parents=True, exist_ok=True)
+CAD_LLM_SYSTEM_PROMPT = (
+    "You are a senior mechanical CAD engineer and geometric reconstruction specialist.\n\n"
+    "Return ONLY Python code for CadQuery that creates closed BREP solids and exports a STEP file.\n"
+    "No markdown fences, no explanation, no STL, no mesh operations.\n"
+    "Use mm units, realistic manufacturable geometry, and keep script deterministic.\n"
+    "Script must define geometry variables and call cq.exporters.export(..., <step_path>)."
+)
 
 
 def _request_api_key(request: Request) -> str | None:
@@ -159,7 +168,7 @@ def _cache_file(kind: str, key: str) -> Path:
     return CACHE_DIR / f"{safe_kind}_{safe_key}.json"
 
 
-def _cache_get(kind: str, key: str) -> dict[str, str] | None:
+def _cache_json_get(kind: str, key: str) -> dict[str, Any] | None:
     path = _cache_file(kind, key)
     if not path.exists() or not path.is_file():
         return None
@@ -168,6 +177,17 @@ def _cache_get(kind: str, key: str) -> dict[str, str] | None:
     except Exception:
         return None
     if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _cache_json_put(kind: str, key: str, payload: dict[str, Any]) -> None:
+    _cache_file(kind, key).write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _cache_get(kind: str, key: str) -> dict[str, str] | None:
+    payload = _cache_json_get(kind, key)
+    if not payload:
         return None
     image_id = str(payload.get("image_id", "")).strip()
     image_data_url = str(payload.get("image_data_url", "")).strip()
@@ -178,15 +198,26 @@ def _cache_get(kind: str, key: str) -> dict[str, str] | None:
 
 def _cache_put(kind: str, key: str, image_id: str, image_data_url: str) -> None:
     payload = {"image_id": image_id, "image_data_url": image_data_url}
-    _cache_file(kind, key).write_text(json.dumps(payload), encoding="utf-8")
+    _cache_json_put(kind, key, payload)
 
 
 def _cache_clear_all() -> int:
     removed = 0
-    for p in CACHE_DIR.glob("*.json"):
+    for p in CACHE_DIR.rglob("*"):
         if p.is_file():
             p.unlink(missing_ok=True)
             removed += 1
+    for p in CAD_RUN_DIR.rglob("*"):
+        if p.is_file():
+            p.unlink(missing_ok=True)
+            removed += 1
+    # Cleanup empty run folders after file removal.
+    for d in sorted(CAD_RUN_DIR.rglob("*"), reverse=True):
+        if d.is_dir():
+            try:
+                d.rmdir()
+            except OSError:
+                pass
     return removed
 
 
@@ -237,42 +268,68 @@ async def _materialize_session_image(
     return data_url, str(local_path.resolve())
 
 
-def _run_triposr(input_image_path: str, session_id: str) -> str:
-    if not settings.triposr_command.strip():
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "TRIPOSR_COMMAND is not configured. Set env var, e.g. "
-                "'python run.py --input {input} --output-dir {output_dir}'"
-            ),
-        )
+def _extract_python_code(text: str) -> str:
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        match = re.search(r"```(?:python)?\s*([\s\S]*?)```", raw, flags=re.IGNORECASE)
+        if match:
+            raw = match.group(1).strip()
+    return raw
 
-    output_root = Path(settings.triposr_output_dir)
-    output_root.mkdir(parents=True, exist_ok=True)
-    run_dir = output_root / f"{_safe_session_key(session_id)}-{uuid.uuid4().hex[:8]}"
+
+def _validate_cad_script(script: str) -> None:
+    banned_tokens = [
+        "import os",
+        "import sys",
+        "import subprocess",
+        "import socket",
+        "import requests",
+        "eval(",
+        "exec(",
+        "open(",
+        "__import__",
+    ]
+    lowered = script.lower()
+    for token in banned_tokens:
+        if token in lowered:
+            raise HTTPException(status_code=400, detail=f"Generated CAD script contains blocked token: {token}")
+    if "import cadquery" not in lowered and "from cadquery" not in lowered:
+        raise HTTPException(status_code=400, detail="Generated CAD script is missing CadQuery import.")
+
+
+def _resolve_relative_public_file(url_path: str) -> Path:
+    rel = url_path.removeprefix("/session-files/")
+    return (SESSION_IMAGE_DIR / rel).resolve()
+
+
+def _run_generated_cad_script(script_text: str, session_id: str) -> tuple[str, str]:
+    run_dir = CAD_RUN_DIR / f"{_safe_session_key(session_id)}-{uuid.uuid4().hex[:8]}"
     run_dir.mkdir(parents=True, exist_ok=True)
+    script_path = run_dir / "generated_cad.py"
+    script_path.write_text(script_text, encoding="utf-8")
 
-    command = settings.triposr_command.format(input=input_image_path, output_dir=str(run_dir))
-    args = shlex.split(command)
-    try:
-        proc = subprocess.run(args, capture_output=True, text=True, timeout=600)
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail=f"TripoSR timed out: {exc}") from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=400, detail=f"TripoSR command not found: {exc}") from exc
-
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    proc = subprocess.run(
+        [sys.executable, str(script_path)],
+        cwd=str(run_dir),
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env=env,
+    )
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()
-        raise HTTPException(status_code=502, detail=f"TripoSR failed: {err[:500]}")
+        raise HTTPException(status_code=502, detail=f"CAD script execution failed: {err[:800]}")
 
-    candidates = []
-    for ext in (".glb", ".obj", ".ply", ".stl"):
-        candidates.extend(run_dir.rglob(f"*{ext}"))
-    if not candidates:
-        raise HTTPException(status_code=502, detail="TripoSR completed but no 3D file was found.")
+    step_candidates = list(run_dir.rglob("*.step")) + list(run_dir.rglob("*.stp"))
+    if not step_candidates:
+        raise HTTPException(
+            status_code=502, detail="CAD script ran but no STEP file was produced. Ensure exporters.export outputs .step."
+        )
 
-    latest = max(candidates, key=lambda p: p.stat().st_mtime)
-    return str(latest.resolve())
+    step_path = max(step_candidates, key=lambda p: p.stat().st_mtime)
+    return str(script_path.resolve()), str(step_path.resolve())
 
 
 @app.get("/health")
@@ -489,7 +546,10 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
     state.cad_sheet_image_id = None
     state.cad_sheet_image_url_or_base64 = None
     state.cad_sheet_image_local_path = None
-    state.preview_3d_file = None
+    state.cad_model_prompt = None
+    state.cad_model_code = None
+    state.cad_model_code_path = None
+    state.cad_step_file = None
 
     store.save(state)
     return ImageResponse(
@@ -553,7 +613,10 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
     state.cad_sheet_image_id = None
     state.cad_sheet_image_url_or_base64 = None
     state.cad_sheet_image_local_path = None
-    state.preview_3d_file = None
+    state.cad_model_prompt = None
+    state.cad_model_code = None
+    state.cad_model_code_path = None
+    state.cad_step_file = None
 
     store.save(state)
     return ImageResponse(
@@ -595,7 +658,10 @@ async def adopt_baseline(payload: BaselineAdoptRequest, request: Request) -> Ima
     state.cad_sheet_image_id = None
     state.cad_sheet_image_url_or_base64 = None
     state.cad_sheet_image_local_path = None
-    state.preview_3d_file = None
+    state.cad_model_prompt = None
+    state.cad_model_code = None
+    state.cad_model_code_path = None
+    state.cad_step_file = None
     if state.step < 4:
         state.step = 4
     store.save(state)
@@ -627,60 +693,17 @@ async def approve_version(payload: VersionApproveRequest, request: Request) -> V
     state.cad_sheet_image_id = None
     state.cad_sheet_image_url_or_base64 = None
     state.cad_sheet_image_local_path = None
-    # Approve screen entry point for TripoSR 2D -> 3D conversion.
+    state.cad_model_prompt = None
+    state.cad_model_code = None
+    state.cad_model_code_path = None
+    state.cad_step_file = None
+    # Approve screen entry point for STEP CAD generation.
     if state.step < 6:
         state.step = 6
     store.save(state)
     return VersionApproveResponse(
-        message=f"Version v{target.version} approved for 3D preview conversion.",
+        message=f"Version v{target.version} approved for STEP CAD generation.",
         approved_version=target.version,
-    )
-
-
-@app.post("/api/preview3d/generate", response_model=Preview3DGenerateResponse)
-async def generate_preview_3d(payload: Preview3DGenerateRequest, request: Request) -> Preview3DGenerateResponse:
-    limiter.check(request, "preview3d-generate")
-    state = store.get_or_create(payload.session_id)
-    if not state.approved_image_local_path:
-        # Backfill path for sessions created before local image persistence existed.
-        approved_img = None
-        if state.approved_image_version:
-            approved_img = next((img for img in state.images if img.version == state.approved_image_version), None)
-        if not approved_img and state.approved_image_id:
-            approved_img = next((img for img in state.images if img.image_id == state.approved_image_id), None)
-        if approved_img:
-            if approved_img.local_image_path:
-                state.approved_image_local_path = approved_img.local_image_path
-            else:
-                data_url, local_path = await _materialize_session_image(
-                    payload.session_id, approved_img.version, approved_img.image_url_or_base64
-                )
-                approved_img.image_url_or_base64 = data_url
-                approved_img.local_image_path = local_path
-                state.approved_image_local_path = local_path
-                if not state.approved_image_version:
-                    state.approved_image_version = approved_img.version
-                if not state.approved_image_id:
-                    state.approved_image_id = approved_img.image_id
-            store.save(state)
-        else:
-            raise HTTPException(status_code=400, detail="Approve a version first before generating 3D preview.")
-
-    input_path = state.approved_image_local_path
-    if not Path(input_path).exists():
-        raise HTTPException(status_code=404, detail="Approved source image file is missing on disk.")
-
-    preview_path = _run_triposr(input_path, payload.session_id)
-    rel = Path(preview_path).resolve().relative_to(Path(settings.triposr_output_dir).resolve())
-    rel_str = str(rel).replace("\\", "/")
-    preview_file = f"/preview-3d/{rel_str}"
-    state.preview_3d_file = preview_file
-    if state.step < 7:
-        state.step = 7
-    store.save(state)
-    return Preview3DGenerateResponse(
-        message=f"3D preview generated from approved version v{state.approved_image_version}.",
-        preview_file=preview_file,
     )
 
 
@@ -727,6 +750,97 @@ async def generate_cad_sheet(payload: CadSheetGenerateRequest, request: Request)
     )
 
 
+@app.post("/api/cad/model/generate", response_model=CadModelGenerateResponse)
+async def generate_cad_model(payload: CadModelGenerateRequest, request: Request) -> CadModelGenerateResponse:
+    limiter.check(request, "cad-model-generate")
+    state = store.get_or_create(payload.session_id)
+    req_api_key = _request_api_key(request)
+
+    if not state.approved_image_local_path:
+        raise HTTPException(status_code=400, detail="Approve a version first before generating CAD model.")
+
+    source_path = Path(state.approved_image_local_path)
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="Approved source image file is missing on disk.")
+
+    approved_blob = source_path.read_bytes()
+    normalized_prompt = re.sub(r"\s+", " ", payload.prompt.strip())
+    cad_cache_key = _sha256_text(f"{_sha256_bytes(approved_blob)}::{normalized_prompt}")
+    cached_payload = _cache_json_get("cadstep", cad_cache_key)
+    if cached_payload:
+        code_file_cached = str(cached_payload.get("code_file", "")).strip()
+        step_file_cached = str(cached_payload.get("step_file", "")).strip()
+        cad_code_cached = str(cached_payload.get("cad_code", "")).strip()
+        if code_file_cached and step_file_cached and cad_code_cached:
+            code_path = _resolve_relative_public_file(code_file_cached)
+            step_path = _resolve_relative_public_file(step_file_cached)
+            if code_path.exists() and step_path.exists():
+                state.cad_model_prompt = payload.prompt
+                state.cad_model_code = cad_code_cached
+                state.cad_model_code_path = code_file_cached
+                state.cad_step_file = step_file_cached
+                if state.step < 7:
+                    state.step = 7
+                store.save(state)
+                return CadModelGenerateResponse(
+                    message=f"CAD model loaded from cache for approved version v{state.approved_image_version}.",
+                    cad_code=cad_code_cached,
+                    code_file=code_file_cached,
+                    step_file=step_file_cached,
+                    cached=True,
+                )
+
+    user_prompt = (
+        payload.prompt.strip()
+        + "\n\nINPUT CONTEXT:\n"
+        + f"- Approved image path: {source_path}\n"
+        + f"- Session spec summary: {spec_summary(state.spec)}\n"
+        + "- Output a single executable Python script only."
+    )
+    llm_text = await straive.chat(
+        system_prompt=CAD_LLM_SYSTEM_PROMPT,
+        history=[],
+        user_message=user_prompt,
+        api_key_override=req_api_key,
+    )
+    if not llm_text or not llm_text.strip():
+        raise HTTPException(status_code=502, detail="LLM returned empty CAD script output.")
+
+    cad_code = _extract_python_code(llm_text)
+    _validate_cad_script(cad_code)
+    script_path, step_path = _run_generated_cad_script(cad_code, payload.session_id)
+
+    code_rel = "/" + str(Path(script_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
+    step_rel = "/" + str(Path(step_path).resolve().relative_to(SESSION_IMAGE_DIR.resolve())).replace("\\", "/")
+    code_file = f"/session-files{code_rel}"
+    step_file = f"/session-files{step_rel}"
+
+    _cache_json_put(
+        "cadstep",
+        cad_cache_key,
+        {
+            "cad_code": cad_code,
+            "code_file": code_file,
+            "step_file": step_file,
+        },
+    )
+    state.cad_model_prompt = payload.prompt
+    state.cad_model_code = cad_code
+    state.cad_model_code_path = code_file
+    state.cad_step_file = step_file
+    if state.step < 7:
+        state.step = 7
+    store.save(state)
+
+    return CadModelGenerateResponse(
+        message=f"CAD STEP model generated from approved version v{state.approved_image_version}.",
+        cad_code=cad_code,
+        code_file=code_file,
+        step_file=step_file,
+        cached=False,
+    )
+
+
 @app.post("/api/cache/clear", response_model=CacheClearResponse)
 async def clear_cache(request: Request) -> CacheClearResponse:
     limiter.check(request, "cache-clear")
@@ -749,7 +863,7 @@ async def skip_baseline(payload: BaselineSkipRequest, request: Request) -> Basel
 async def clear_session(payload: SessionClearRequest, request: Request) -> SessionClearResponse:
     limiter.check(request, "session-clear")
     reset_state = store.get_or_create(payload.session_id)
-    # Reset workflow conversation/spec/images/3D preview while keeping session id continuity.
+    # Reset workflow conversation/spec/images/CAD outputs while keeping session id continuity.
     reset_state.step = 1
     reset_state.spec = reset_state.spec.__class__()
     reset_state.missing_fields = []
@@ -766,10 +880,13 @@ async def clear_session(payload: SessionClearRequest, request: Request) -> Sessi
     reset_state.cad_sheet_image_id = None
     reset_state.cad_sheet_image_url_or_base64 = None
     reset_state.cad_sheet_image_local_path = None
+    reset_state.cad_model_prompt = None
+    reset_state.cad_model_code = None
+    reset_state.cad_model_code_path = None
+    reset_state.cad_step_file = None
     reset_state.lock_question_asked = False
     reset_state.lock_confirmed = False
     reset_state.design_summary = None
-    reset_state.preview_3d_file = None
     reset_state.history = []
     store.save(reset_state)
     return SessionClearResponse(message="Session state cleared.")
@@ -783,5 +900,5 @@ async def get_session(session_id: str, request: Request) -> SessionResponse:
 
 
 app.mount("/asset-files", StaticFiles(directory=settings.assets_dir), name="asset-files")
-app.mount("/preview-3d", StaticFiles(directory=settings.triposr_output_dir), name="preview-3d")
+app.mount("/session-files", StaticFiles(directory=str(SESSION_IMAGE_DIR)), name="session-files")
 app.mount("/static", StaticFiles(directory="static"), name="static")

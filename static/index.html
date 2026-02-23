@@ -150,25 +150,21 @@
               <h2>Approval & 3D</h2>
               <p id="approvalStatus">No version approved yet.</p>
               <img id="approvedImagePreview" class="candidate-thumb" alt="Approved version preview" src="" hidden />
-              <div id="preview3dProgress" class="op-progress" hidden>
-                <div id="preview3dProgressText" class="op-progress-text">Generating 3D preview...</div>
+              <div id="stepCadProgress" class="op-progress" hidden>
+                <div id="stepCadProgressText" class="op-progress-text">Generating CAD code and STEP file...</div>
                 <div class="op-progress-bar"><span></span></div>
               </div>
-              <button id="generate3dPreviewBtn" class="btn warning">Generate 3D Preview (TripoSR)</button>
-              <a id="open3dPreviewLink" class="btn secondary" href="#" target="_blank" rel="noopener" hidden>Open 3D File</a>
+              <div class="actions-row">
+                <button id="generateStepCadBtn" class="btn">Generate STEP CAD</button>
+                <a id="downloadCadCodeBtn" class="btn secondary" href="#" download="generated_cad.py" hidden>Download CAD Code</a>
+                <a id="downloadStepBtn" class="btn secondary" href="#" download="model.step" hidden>Download STEP</a>
+              </div>
             </div>
             <div class="card">
-              <h2>3D Preview Status</h2>
+              <h2>STEP 3D Viewer</h2>
               <div id="threeDPanel" class="three-d">
-                <p id="threeDText">Approve a version, then run TripoSR 2D->3D conversion.</p>
-                <model-viewer
-                  id="modelViewer"
-                  src=""
-                  camera-controls
-                  auto-rotate
-                  ar
-                  style="width: 100%; height: 320px; display: none;"
-                ></model-viewer>
+                <p id="threeDText">Approve a version, then generate STEP CAD.</p>
+                <iframe id="stepViewerFrame" title="STEP Viewer" class="step-viewer" src="/static/step_viewer.html" hidden></iframe>
               </div>
             </div>
           </div>
@@ -329,6 +325,5 @@
     </div>
 
     <script src="/static/app.js"></script>
-    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
   </body>
 </html>

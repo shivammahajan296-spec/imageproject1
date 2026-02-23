@@ -45,10 +45,13 @@ class SessionState(BaseModel):
     cad_sheet_image_id: str | None = None
     cad_sheet_image_url_or_base64: str | None = None
     cad_sheet_image_local_path: str | None = None
+    cad_model_prompt: str | None = None
+    cad_model_code: str | None = None
+    cad_model_code_path: str | None = None
+    cad_step_file: str | None = None
     lock_question_asked: bool = False
     lock_confirmed: bool = False
     design_summary: str | None = None
-    preview_3d_file: str | None = None
     history: list[dict[str, str]] = Field(default_factory=list)
 
 
@@ -156,15 +159,6 @@ class BriefUploadResponse(BaseModel):
     required_questions: list[str] = Field(default_factory=list)
 
 
-class Preview3DGenerateRequest(BaseModel):
-    session_id: str = Field(min_length=1, max_length=120)
-
-
-class Preview3DGenerateResponse(BaseModel):
-    message: str
-    preview_file: str
-
-
 class VersionApproveRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=120)
     version: int = Field(ge=1)
@@ -184,3 +178,16 @@ class CadSheetGenerateResponse(BaseModel):
     message: str
     image_id: str
     image_url_or_base64: str
+
+
+class CadModelGenerateRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(min_length=20, max_length=12000)
+
+
+class CadModelGenerateResponse(BaseModel):
+    message: str
+    cad_code: str
+    code_file: str
+    step_file: str
+    cached: bool = False
