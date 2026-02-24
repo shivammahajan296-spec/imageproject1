@@ -18,7 +18,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pypdf import PdfReader
 
@@ -126,6 +126,18 @@ CAD_FIX_SYSTEM_PROMPT = (
     "Keep existing geometry intent, make minimal required fixes, and ensure at least one .step export succeeds.\n"
     "Do not use STL/mesh output. Use safe deterministic CadQuery code only."
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled server error on %s %s", request.method, request.url.path, exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            "error_type": exc.__class__.__name__,
+        },
+    )
 
 
 def _request_api_key(request: Request) -> str | None:

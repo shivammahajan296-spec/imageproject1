@@ -764,8 +764,16 @@ async function apiPost(url, body) {
     headers,
     body: JSON.stringify(body),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "Request failed");
+  const raw = await res.text();
+  let data = {};
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = { detail: raw };
+    }
+  }
+  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
   return data;
 }
 
@@ -777,8 +785,16 @@ async function apiPostForm(url, formData) {
     headers,
     body: formData,
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "Request failed");
+  const raw = await res.text();
+  let data = {};
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = { detail: raw };
+    }
+  }
+  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
   return data;
 }
 
@@ -786,8 +802,16 @@ async function apiGet(url) {
   const headers = {};
   if (state.apiKey) headers["X-Straive-Api-Key"] = state.apiKey;
   const res = await fetch(url, { headers });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "Request failed");
+  const raw = await res.text();
+  let data = {};
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = { detail: raw };
+    }
+  }
+  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
   return data;
 }
 
