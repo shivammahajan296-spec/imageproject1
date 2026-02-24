@@ -80,6 +80,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def iframe_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    # Allow same-origin iframe embedding for in-app viewers.
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+
+    csp = response.headers.get("Content-Security-Policy", "").strip()
+    if "frame-ancestors" in csp:
+        csp = re.sub(r"frame-ancestors\s+[^;]+;?", "frame-ancestors 'self';", csp).strip()
+    else:
+        csp = f"{csp}; frame-ancestors 'self';".strip("; ").strip()
+    response.headers["Content-Security-Policy"] = csp
+    return response
+
+
 store = SessionStore(settings.db_path)
 asset_catalog = AssetCatalog(settings.db_path, settings.assets_dir)
 straive = StraiveClient(settings)
