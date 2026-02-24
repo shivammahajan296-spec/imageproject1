@@ -815,6 +815,25 @@ async function apiGet(url) {
   return data;
 }
 
+async function waitForJob(jobId, progressPrefix = "Processing", timeoutMs = 8 * 60 * 1000) {
+  const startedAt = Date.now();
+  while (true) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(`${progressPrefix} timed out.`);
+    }
+    const job = await apiGet(`/api/jobs/${encodeURIComponent(jobId)}`);
+    const stepText = job.message || `${progressPrefix}...`;
+    setOperationLoading(true, stepText);
+    if (job.status === "success") {
+      return job.result || {};
+    }
+    if (job.status === "failed") {
+      throw new Error(job.error || `${progressPrefix} failed.`);
+    }
+    await sleep(1200);
+  }
+}
+
 function setOperationLoading(isLoading, text = "Processing...") {
   operationInFlight = isLoading;
   el.opProgress.hidden = !isLoading;
@@ -1000,7 +1019,8 @@ async function generate2D() {
   addMessage("system", "Generating 2D concept...");
   let shouldReload = false;
   try {
-    const res = await apiPost("/api/image/generate", { session_id: state.sessionId, prompt });
+    const started = await apiPost("/api/image/generate/start", { session_id: state.sessionId, prompt });
+    const res = await waitForJob(started.job_id, "Generating 2D concept");
     // Update local state immediately so Run Edit unlocks even before a full session refetch.
     if (state.session) {
       const newImage = {
@@ -1030,6 +1050,8 @@ async function generate2D() {
       addMessage("system", `Session refresh warning: ${err.message}`);
     }
     shouldReload = true;
+  } catch (err) {
+    addMessage("system", `Generate 2D failed: ${err.message}`);
   } finally {
     setOperationLoading(false);
     if (shouldReload) {
@@ -1056,14 +1078,17 @@ async function runManualEdit() {
   addMessage("system", "Applying edit...");
   let shouldReload = false;
   try {
-    const res = await apiPost("/api/image/edit", {
+    const started = await apiPost("/api/image/edit/start", {
       session_id: state.sessionId,
       image_id: state.latestImageId,
       instruction_prompt: instruction,
     });
+    const res = await waitForJob(started.job_id, "Applying edit");
     addMessage("system", `Created iteration version v${res.version}.`);
     await refreshSession();
     shouldReload = true;
+  } catch (err) {
+    addMessage("system", `Run Edit failed: ${err.message}`);
   } finally {
     setOperationLoading(false);
     if (shouldReload) {
@@ -1201,13 +1226,16 @@ async function generateCadSheet() {
   setCadSheetLoading(true, "Generating CAD drawing sheet...");
   addMessage("system", "Generating CAD drawing sheet from approved image...");
   try {
-    const res = await apiPost("/api/cad-sheet/generate", {
+    const started = await apiPost("/api/cad-sheet/generate/start", {
       session_id: state.sessionId,
       prompt,
     });
+    const res = await waitForJob(started.job_id, "Generating CAD drawing sheet");
     addMessage("assistant", res.message);
     renderCadSheetPreview(res.image_url_or_base64);
     await refreshSession();
+  } catch (err) {
+    addMessage("system", `CAD drawing generation failed: ${err.message}`);
   } finally {
     setOperationLoading(false);
     setCadSheetLoading(false);

@@ -90,6 +90,20 @@ class ImageResponse(BaseModel):
     version: int
 
 
+class JobStartResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
+
+
 class SessionResponse(BaseModel):
     state: dict[str, Any]
 

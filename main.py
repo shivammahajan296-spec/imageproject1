@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import hashlib
 import io
 import imghdr
@@ -47,6 +48,8 @@ from app.models import (
     ImageEditRequest,
     ImageGenerateRequest,
     ImageResponse,
+    JobStartResponse,
+    JobStatusResponse,
     ImageVersion,
     SessionResponse,
     SessionClearRequest,
@@ -126,6 +129,31 @@ CAD_FIX_SYSTEM_PROMPT = (
     "Keep existing geometry intent, make minimal required fixes, and ensure at least one .step export succeeds.\n"
     "Do not use STL/mesh output. Use safe deterministic CadQuery code only."
 )
+IMAGE_JOBS: dict[str, dict[str, Any]] = {}
+IMAGE_JOBS_LOCK = asyncio.Lock()
+
+
+async def _create_image_job(kind: str, session_id: str) -> str:
+    job_id = f"{kind}-{uuid.uuid4().hex[:12]}"
+    async with IMAGE_JOBS_LOCK:
+        IMAGE_JOBS[job_id] = {
+            "job_id": job_id,
+            "kind": kind,
+            "session_id": session_id,
+            "status": "queued",
+            "message": "Queued",
+            "result": None,
+            "error": None,
+        }
+    return job_id
+
+
+async def _set_image_job(job_id: str, **fields: Any) -> None:
+    async with IMAGE_JOBS_LOCK:
+        job = IMAGE_JOBS.get(job_id)
+        if not job:
+            return
+        job.update(fields)
 
 
 @app.exception_handler(Exception)
@@ -638,11 +666,8 @@ async def get_recommendations(session_id: str, request: Request) -> EditRecommen
     return EditRecommendationsResponse(count=len(recs), recommendations=recs)
 
 
-@app.post("/api/image/generate", response_model=ImageResponse)
-async def image_generate(payload: ImageGenerateRequest, request: Request) -> ImageResponse:
-    limiter.check(request, "image-generate")
+async def _process_image_generate(payload: ImageGenerateRequest, req_api_key: str | None) -> ImageResponse:
     state = store.get_or_create(payload.session_id)
-    req_api_key = _request_api_key(request)
 
     if state.step < 3:
         raise HTTPException(status_code=400, detail="Workflow has not reached STEP 3.")
@@ -669,7 +694,6 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
     )
     state.images.append(image)
 
-    # New concept generation should always move workflow into active 2D iteration mode.
     state.step = 4
     state.lock_question_asked = False
     state.lock_confirmed = False
@@ -687,8 +711,8 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
     state.cad_model_last_error = None
     state.cad_model_code_path = None
     state.cad_step_file = None
-
     store.save(state)
+
     return ImageResponse(
         image_id=image.image_id,
         image_url_or_base64=image.image_url_or_base64,
@@ -696,11 +720,8 @@ async def image_generate(payload: ImageGenerateRequest, request: Request) -> Ima
     )
 
 
-@app.post("/api/image/edit", response_model=ImageResponse)
-async def image_edit(payload: ImageEditRequest, request: Request) -> ImageResponse:
-    limiter.check(request, "image-edit")
+async def _process_image_edit(payload: ImageEditRequest, req_api_key: str | None) -> ImageResponse:
     state = store.get_or_create(payload.session_id)
-    req_api_key = _request_api_key(request)
 
     if not state.images:
         raise HTTPException(status_code=400, detail="No reference image found. Generate or adopt a concept first.")
@@ -709,7 +730,6 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
     if state.step < 4:
         state.step = 4
 
-    # Always edit the latest session visual so iteration is continuous from the current reference.
     latest = state.images[-1] if state.images else None
     latest_ref = (
         latest.local_image_path
@@ -756,13 +776,95 @@ async def image_edit(payload: ImageEditRequest, request: Request) -> ImageRespon
     state.cad_model_last_error = None
     state.cad_model_code_path = None
     state.cad_step_file = None
-
     store.save(state)
+
     return ImageResponse(
         image_id=image.image_id,
         image_url_or_base64=image.image_url_or_base64,
         version=image.version,
     )
+
+
+async def _run_image_generate_job(job_id: str, payload: ImageGenerateRequest, req_api_key: str | None) -> None:
+    await _set_image_job(job_id, status="running", message="Generating 2D concept...")
+    try:
+        res = await _process_image_generate(payload, req_api_key=req_api_key)
+        await _set_image_job(
+            job_id,
+            status="success",
+            message=f"Generated concept image version v{res.version}.",
+            result=res.model_dump(),
+            error=None,
+        )
+    except Exception as exc:
+        logger.exception("Generate image job failed. job_id=%s session=%s", job_id, payload.session_id, exc_info=exc)
+        detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+        await _set_image_job(job_id, status="failed", message="2D generation failed.", result=None, error=detail)
+
+
+async def _run_image_edit_job(job_id: str, payload: ImageEditRequest, req_api_key: str | None) -> None:
+    await _set_image_job(job_id, status="running", message="Applying design edit...")
+    try:
+        res = await _process_image_edit(payload, req_api_key=req_api_key)
+        await _set_image_job(
+            job_id,
+            status="success",
+            message=f"Created iteration version v{res.version}.",
+            result=res.model_dump(),
+            error=None,
+        )
+    except Exception as exc:
+        logger.exception("Edit image job failed. job_id=%s session=%s", job_id, payload.session_id, exc_info=exc)
+        detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+        await _set_image_job(job_id, status="failed", message="Image edit failed.", result=None, error=detail)
+
+
+@app.post("/api/image/generate", response_model=ImageResponse)
+async def image_generate(payload: ImageGenerateRequest, request: Request) -> ImageResponse:
+    limiter.check(request, "image-generate")
+    req_api_key = _request_api_key(request)
+    return await _process_image_generate(payload, req_api_key=req_api_key)
+
+
+@app.post("/api/image/generate/start", response_model=JobStartResponse)
+async def image_generate_start(payload: ImageGenerateRequest, request: Request) -> JobStartResponse:
+    limiter.check(request, "image-generate")
+    req_api_key = _request_api_key(request)
+    job_id = await _create_image_job("generate", payload.session_id)
+    asyncio.create_task(_run_image_generate_job(job_id, payload, req_api_key))
+    return JobStartResponse(job_id=job_id, status="queued", message="2D generation job started.")
+
+
+@app.post("/api/image/edit", response_model=ImageResponse)
+async def image_edit(payload: ImageEditRequest, request: Request) -> ImageResponse:
+    limiter.check(request, "image-edit")
+    req_api_key = _request_api_key(request)
+    return await _process_image_edit(payload, req_api_key=req_api_key)
+
+
+@app.post("/api/image/edit/start", response_model=JobStartResponse)
+async def image_edit_start(payload: ImageEditRequest, request: Request) -> JobStartResponse:
+    limiter.check(request, "image-edit")
+    req_api_key = _request_api_key(request)
+    job_id = await _create_image_job("edit", payload.session_id)
+    asyncio.create_task(_run_image_edit_job(job_id, payload, req_api_key))
+    return JobStartResponse(job_id=job_id, status="queued", message="Edit job started.")
+
+
+@app.get("/api/jobs/{job_id}", response_model=JobStatusResponse)
+async def image_job_status(job_id: str, request: Request) -> JobStatusResponse:
+    limiter.check(request, "jobs")
+    async with IMAGE_JOBS_LOCK:
+        job = IMAGE_JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found.")
+        return JobStatusResponse(
+            job_id=job["job_id"],
+            status=job["status"],
+            message=job.get("message"),
+            result=job.get("result"),
+            error=job.get("error"),
+        )
 
 
 @app.post("/api/image/adopt-baseline", response_model=ImageResponse)
@@ -850,11 +952,8 @@ async def approve_version(payload: VersionApproveRequest, request: Request) -> V
     )
 
 
-@app.post("/api/cad-sheet/generate", response_model=CadSheetGenerateResponse)
-async def generate_cad_sheet(payload: CadSheetGenerateRequest, request: Request) -> CadSheetGenerateResponse:
-    limiter.check(request, "cad-sheet-generate")
+async def _process_cad_sheet_generate(payload: CadSheetGenerateRequest, req_api_key: str | None) -> CadSheetGenerateResponse:
     state = store.get_or_create(payload.session_id)
-    req_api_key = _request_api_key(request)
 
     if not state.approved_image_local_path:
         raise HTTPException(status_code=400, detail="Approve a version first before generating CAD drawing sheet.")
@@ -891,6 +990,45 @@ async def generate_cad_sheet(payload: CadSheetGenerateRequest, request: Request)
         image_id=state.cad_sheet_image_id,
         image_url_or_base64=state.cad_sheet_image_url_or_base64,
     )
+
+
+async def _run_cad_sheet_job(job_id: str, payload: CadSheetGenerateRequest, req_api_key: str | None) -> None:
+    await _set_image_job(job_id, status="running", message="Generating CAD drawing sheet...")
+    try:
+        res = await _process_cad_sheet_generate(payload, req_api_key=req_api_key)
+        await _set_image_job(
+            job_id,
+            status="success",
+            message=res.message,
+            result=res.model_dump(),
+            error=None,
+        )
+    except Exception as exc:
+        logger.exception("CAD sheet job failed. job_id=%s session=%s", job_id, payload.session_id, exc_info=exc)
+        detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+        await _set_image_job(
+            job_id,
+            status="failed",
+            message="CAD drawing sheet generation failed.",
+            result=None,
+            error=detail,
+        )
+
+
+@app.post("/api/cad-sheet/generate", response_model=CadSheetGenerateResponse)
+async def generate_cad_sheet(payload: CadSheetGenerateRequest, request: Request) -> CadSheetGenerateResponse:
+    limiter.check(request, "cad-sheet-generate")
+    req_api_key = _request_api_key(request)
+    return await _process_cad_sheet_generate(payload, req_api_key=req_api_key)
+
+
+@app.post("/api/cad-sheet/generate/start", response_model=JobStartResponse)
+async def generate_cad_sheet_start(payload: CadSheetGenerateRequest, request: Request) -> JobStartResponse:
+    limiter.check(request, "cad-sheet-generate")
+    req_api_key = _request_api_key(request)
+    job_id = await _create_image_job("cad-sheet", payload.session_id)
+    asyncio.create_task(_run_cad_sheet_job(job_id, payload, req_api_key))
+    return JobStartResponse(job_id=job_id, status="queued", message="CAD drawing sheet job started.")
 
 
 @app.post("/api/cad/model/generate", response_model=CadModelGenerateResponse)
