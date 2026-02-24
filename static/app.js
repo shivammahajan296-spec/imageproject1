@@ -1155,19 +1155,21 @@ async function generateStepCad() {
 
       let res;
       if (i === 0) {
-        res = await apiPost("/api/cad/model/generate", {
+        const started = await apiPost("/api/cad/model/generate/start", {
           session_id: state.sessionId,
           prompt,
           provider,
         });
+        res = await waitForJob(started.job_id, `STEP CAD attempt ${i + 1}`, 12 * 60 * 1000);
       } else {
-        res = await apiPost("/api/cad/model/fix-code", {
+        const started = await apiPost("/api/cad/model/fix-code/start", {
           session_id: state.sessionId,
           cad_code: currentCode,
           error_detail: currentError,
           prompt,
           provider,
         });
+        res = await waitForJob(started.job_id, `STEP CAD fix attempt ${i + 1}`, 12 * 60 * 1000);
       }
 
       if (res.success && res.step_file) {

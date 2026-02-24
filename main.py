@@ -1035,11 +1035,10 @@ async def generate_cad_sheet_start(payload: CadSheetGenerateRequest, request: Re
     return JobStartResponse(job_id=job_id, status="queued", message="CAD drawing sheet job started.")
 
 
-@app.post("/api/cad/model/generate", response_model=CadModelGenerateResponse)
-async def generate_cad_model(payload: CadModelGenerateRequest, request: Request) -> CadModelGenerateResponse:
-    limiter.check(request, "cad-model-generate")
+async def _process_cad_model_generate(
+    payload: CadModelGenerateRequest, req_api_key: str | None
+) -> CadModelGenerateResponse:
     state = store.get_or_create(payload.session_id)
-    req_api_key = _request_api_key(request)
 
     if not state.approved_image_local_path:
         raise HTTPException(status_code=400, detail="Approve a version first before generating CAD model.")
@@ -1155,9 +1154,7 @@ async def generate_cad_model(payload: CadModelGenerateRequest, request: Request)
     )
 
 
-@app.post("/api/cad/model/run-code", response_model=CadModelGenerateResponse)
-async def run_cad_model_code(payload: CadModelRunCodeRequest, request: Request) -> CadModelGenerateResponse:
-    limiter.check(request, "cad-model-run-code")
+async def _process_cad_model_run_code(payload: CadModelRunCodeRequest) -> CadModelGenerateResponse:
     state = store.get_or_create(payload.session_id)
     cad_code = (payload.cad_code or "").strip()
     provider = _normalize_cad_provider(payload.provider or state.cad_model_provider)
@@ -1197,11 +1194,10 @@ async def run_cad_model_code(payload: CadModelRunCodeRequest, request: Request) 
     )
 
 
-@app.post("/api/cad/model/fix-code", response_model=CadModelGenerateResponse)
-async def fix_cad_model_code(payload: CadModelFixRequest, request: Request) -> CadModelGenerateResponse:
-    limiter.check(request, "cad-model-fix-code")
+async def _process_cad_model_fix_code(
+    payload: CadModelFixRequest, req_api_key: str | None
+) -> CadModelGenerateResponse:
     state = store.get_or_create(payload.session_id)
-    req_api_key = _request_api_key(request)
 
     code = (payload.cad_code or "").strip()
     provider = _normalize_cad_provider(payload.provider or state.cad_model_provider)
@@ -1276,6 +1272,87 @@ async def fix_cad_model_code(payload: CadModelFixRequest, request: Request) -> C
         error_detail=err or "Unknown CAD execution failure.",
         attempts=1,
     )
+
+
+async def _run_cad_model_generate_job(
+    job_id: str, payload: CadModelGenerateRequest, req_api_key: str | None
+) -> None:
+    await _set_image_job(job_id, status="running", message="Generating STEP CAD code...")
+    try:
+        res = await _process_cad_model_generate(payload, req_api_key=req_api_key)
+        await _set_image_job(job_id, status="success", message=res.message, result=res.model_dump(), error=None)
+    except Exception as exc:
+        logger.exception("CAD generate job failed. job_id=%s session=%s", job_id, payload.session_id, exc_info=exc)
+        detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+        await _set_image_job(job_id, status="failed", message="STEP CAD generation failed.", result=None, error=detail)
+
+
+async def _run_cad_model_fix_job(job_id: str, payload: CadModelFixRequest, req_api_key: str | None) -> None:
+    await _set_image_job(job_id, status="running", message="Running LLM fix for CAD code...")
+    try:
+        res = await _process_cad_model_fix_code(payload, req_api_key=req_api_key)
+        await _set_image_job(job_id, status="success", message=res.message, result=res.model_dump(), error=None)
+    except Exception as exc:
+        logger.exception("CAD fix job failed. job_id=%s session=%s", job_id, payload.session_id, exc_info=exc)
+        detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+        await _set_image_job(job_id, status="failed", message="CAD LLM fix failed.", result=None, error=detail)
+
+
+async def _run_cad_model_run_code_job(job_id: str, payload: CadModelRunCodeRequest) -> None:
+    await _set_image_job(job_id, status="running", message="Executing CAD code...")
+    try:
+        res = await _process_cad_model_run_code(payload)
+        await _set_image_job(job_id, status="success", message=res.message, result=res.model_dump(), error=None)
+    except Exception as exc:
+        logger.exception("CAD run-code job failed. job_id=%s session=%s", job_id, payload.session_id, exc_info=exc)
+        detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+        await _set_image_job(job_id, status="failed", message="CAD code execution failed.", result=None, error=detail)
+
+
+@app.post("/api/cad/model/generate", response_model=CadModelGenerateResponse)
+async def generate_cad_model(payload: CadModelGenerateRequest, request: Request) -> CadModelGenerateResponse:
+    limiter.check(request, "cad-model-generate")
+    req_api_key = _request_api_key(request)
+    return await _process_cad_model_generate(payload, req_api_key=req_api_key)
+
+
+@app.post("/api/cad/model/generate/start", response_model=JobStartResponse)
+async def generate_cad_model_start(payload: CadModelGenerateRequest, request: Request) -> JobStartResponse:
+    limiter.check(request, "cad-model-generate")
+    req_api_key = _request_api_key(request)
+    job_id = await _create_image_job("cad-model-generate", payload.session_id)
+    asyncio.create_task(_run_cad_model_generate_job(job_id, payload, req_api_key))
+    return JobStartResponse(job_id=job_id, status="queued", message="STEP CAD generation job started.")
+
+
+@app.post("/api/cad/model/run-code", response_model=CadModelGenerateResponse)
+async def run_cad_model_code(payload: CadModelRunCodeRequest, request: Request) -> CadModelGenerateResponse:
+    limiter.check(request, "cad-model-run-code")
+    return await _process_cad_model_run_code(payload)
+
+
+@app.post("/api/cad/model/run-code/start", response_model=JobStartResponse)
+async def run_cad_model_code_start(payload: CadModelRunCodeRequest, request: Request) -> JobStartResponse:
+    limiter.check(request, "cad-model-run-code")
+    job_id = await _create_image_job("cad-model-run-code", payload.session_id)
+    asyncio.create_task(_run_cad_model_run_code_job(job_id, payload))
+    return JobStartResponse(job_id=job_id, status="queued", message="CAD code execution job started.")
+
+
+@app.post("/api/cad/model/fix-code", response_model=CadModelGenerateResponse)
+async def fix_cad_model_code(payload: CadModelFixRequest, request: Request) -> CadModelGenerateResponse:
+    limiter.check(request, "cad-model-fix-code")
+    req_api_key = _request_api_key(request)
+    return await _process_cad_model_fix_code(payload, req_api_key=req_api_key)
+
+
+@app.post("/api/cad/model/fix-code/start", response_model=JobStartResponse)
+async def fix_cad_model_code_start(payload: CadModelFixRequest, request: Request) -> JobStartResponse:
+    limiter.check(request, "cad-model-fix-code")
+    req_api_key = _request_api_key(request)
+    job_id = await _create_image_job("cad-model-fix", payload.session_id)
+    asyncio.create_task(_run_cad_model_fix_job(job_id, payload, req_api_key))
+    return JobStartResponse(job_id=job_id, status="queued", message="CAD LLM fix job started.")
 
 
 @app.post("/api/cache/clear", response_model=CacheClearResponse)
