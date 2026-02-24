@@ -297,12 +297,6 @@ async def _resolve_image_bytes(value: str, req_api_key: str | None = None) -> tu
     if not raw:
         raise HTTPException(status_code=400, detail="Empty image content.")
 
-    p = Path(raw)
-    if p.exists() and p.is_file():
-        blob = p.read_bytes()
-        hinted = mimetypes.guess_type(str(p))[0]
-        return blob, _detect_mime_from_bytes(blob, hinted=hinted)
-
     if raw.startswith("data:image"):
         header, b64_data = raw.split(",", 1)
         m = re.search(r"data:(image/[^;]+);base64", header)
@@ -320,6 +314,16 @@ async def _resolve_image_bytes(value: str, req_api_key: str | None = None) -> tu
             blob = resp.content
             hinted = resp.headers.get("content-type", "").split(";")[0].strip() or None
             return blob, _detect_mime_from_bytes(blob, hinted=hinted)
+
+    try:
+        p = Path(raw)
+        if p.exists() and p.is_file():
+            blob = p.read_bytes()
+            hinted = mimetypes.guess_type(str(p))[0]
+            return blob, _detect_mime_from_bytes(blob, hinted=hinted)
+    except OSError:
+        # Not a valid filesystem path (e.g., very long data-like string); fall through to base64 decode.
+        pass
 
     # Assume bare base64.
     blob = base64.b64decode(raw)

@@ -237,14 +237,6 @@ class StraiveClient:
         if not raw:
             raise ValueError("Empty image reference provided for edit.")
 
-        p = Path(raw)
-        if p.exists() and p.is_file():
-            blob = p.read_bytes()
-            hinted = mimetypes.guess_type(str(p))[0]
-            mime_type = self._detect_image_mime(blob, hinted_mime=hinted)
-            ext = mimetypes.guess_extension(mime_type) or ".png"
-            return blob, mime_type, f"edit_input{ext}"
-
         if raw.startswith("data:image"):
             header, b64_data = raw.split(",", 1)
             mime_match = re.search(r"data:(image/[^;]+);base64", header)
@@ -261,6 +253,18 @@ class StraiveClient:
                 mime_type = resp.headers.get("content-type", "image/png").split(";")[0].strip() or "image/png"
                 ext = mimetypes.guess_extension(mime_type) or ".png"
                 return resp.content, mime_type, f"edit_input{ext}"
+
+        try:
+            p = Path(raw)
+            if p.exists() and p.is_file():
+                blob = p.read_bytes()
+                hinted = mimetypes.guess_type(str(p))[0]
+                mime_type = self._detect_image_mime(blob, hinted_mime=hinted)
+                ext = mimetypes.guess_extension(mime_type) or ".png"
+                return blob, mime_type, f"edit_input{ext}"
+        except OSError:
+            # Not a valid local path (common for large inline image refs); continue to base64 branch.
+            pass
 
         # Assume bare base64 image payload
         blob = base64.b64decode(raw)
