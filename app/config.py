@@ -39,7 +39,7 @@ def load_settings() -> Settings:
             "CLAUDE_CODEGEN_URL",
             "https://llmfoundry.straive.com/anthropic/v1/messages",
         ),
-        model_name=os.getenv("STRAIVE_MODEL", "gpt-4o-mini"),
+        model_name=os.getenv("STRAIVE_MODEL", "gpt-5.2"),
         claude_model=os.getenv("STRAIVE_CLAUDE_MODEL", "claude-haiku-4-5-20251001"),
         claude_project_suffix=os.getenv("STRAIVE_CLAUDE_PROJECT_SUFFIX", ""),
         cors_origins=origins if origins else ["*"],
