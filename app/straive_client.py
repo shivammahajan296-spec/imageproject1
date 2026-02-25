@@ -147,6 +147,7 @@ class StraiveClient:
 
         payload = {
             "model": self.settings.claude_model,
+            "max_tokens": 4096,
             "messages": [{"role": "user", "content": content_parts}],
         }
         logger.info("Straive CAD Claude request: %s", self._redact(payload))
