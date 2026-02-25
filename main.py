@@ -1268,22 +1268,14 @@ async def _process_cad_model_fix_code(
         "Current code:\n"
         f"{code}"
     )
-    approved_blob = None
-    approved_mime = None
-    approved_path_raw = (state.approved_image_local_path or "").strip()
-    if approved_path_raw:
-        approved_path = Path(approved_path_raw)
-        if approved_path.exists() and approved_path.is_file():
-            approved_blob = approved_path.read_bytes()
-            approved_mime = _detect_mime_from_bytes(approved_blob, hinted=mimetypes.guess_type(str(approved_path))[0])
     try:
         llm_text = await straive.cad_codegen(
             provider=provider,
             system_prompt=CAD_FIX_SYSTEM_PROMPT,
             user_message=fix_prompt,
             api_key_override=req_api_key,
-            image_bytes=approved_blob,
-            image_mime_type=approved_mime,
+            image_bytes=None,
+            image_mime_type=None,
         )
     except Exception as exc:
         logger.error("CAD fix provider call failed. provider=%s session=%s error=%s", provider, payload.session_id, exc)
