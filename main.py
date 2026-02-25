@@ -124,10 +124,21 @@ CAD_LLM_SYSTEM_PROMPT = (
 )
 CAD_FIX_SYSTEM_PROMPT = (
     "You are a senior CadQuery debugging specialist.\n\n"
-    "You will receive failing CadQuery Python code and an execution error.\n"
-    "Return ONLY corrected executable Python code, no markdown and no explanation.\n"
-    "Keep existing geometry intent, make minimal required fixes, and ensure at least one .step export succeeds.\n"
-    "Do not use STL/mesh output. Use safe deterministic CadQuery code only."
+    "You will receive:\n"
+    "1) failing CadQuery Python code\n"
+    "2) execution error text\n"
+    "3) a reference product image (on image-assisted attempts)\n\n"
+    "Goal:\n"
+    "Return corrected executable Python code that runs successfully and exports at least one .step file.\n\n"
+    "Requirements:\n"
+    "- Target CadQuery version: 2.5.2\n"
+    "- Preserve existing geometry intent\n"
+    "- If image is provided, keep shape/proportions/features aligned to the approved design\n"
+    "- Apply minimal changes needed to fix execution\n"
+    "- Use closed manufacturable BREP solids only\n"
+    "- No STL/mesh output\n"
+    "- No markdown, no explanations, no extra text\n"
+    "- Output only Python code"
 )
 IMAGE_JOBS: dict[str, dict[str, Any]] = {}
 IMAGE_JOBS_LOCK = asyncio.Lock()
@@ -1227,14 +1238,22 @@ async def _process_cad_model_fix_code(
         "Current code:\n"
         f"{code}"
     )
+    approved_blob = None
+    approved_mime = None
+    approved_path_raw = (state.approved_image_local_path or "").strip()
+    if approved_path_raw:
+        approved_path = Path(approved_path_raw)
+        if approved_path.exists() and approved_path.is_file():
+            approved_blob = approved_path.read_bytes()
+            approved_mime = _detect_mime_from_bytes(approved_blob, hinted=mimetypes.guess_type(str(approved_path))[0])
     try:
         llm_text = await straive.cad_codegen(
             provider=provider,
             system_prompt=CAD_FIX_SYSTEM_PROMPT,
             user_message=fix_prompt,
             api_key_override=req_api_key,
-            image_bytes=None,
-            image_mime_type=None,
+            image_bytes=approved_blob,
+            image_mime_type=approved_mime,
         )
     except Exception as exc:
         logger.error("CAD fix provider call failed. provider=%s session=%s error=%s", provider, payload.session_id, exc)
