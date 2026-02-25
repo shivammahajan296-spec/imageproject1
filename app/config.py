@@ -9,7 +9,10 @@ class Settings:
     image_generate_url: str
     image_edit_url: str
     cad_codegen_url: str
+    claude_codegen_url: str
     model_name: str
+    claude_model: str
+    claude_project_suffix: str
     cors_origins: list[str]
     db_path: str
     assets_dir: str
@@ -32,7 +35,13 @@ def load_settings() -> Settings:
             "CAD_CODEGEN_URL",
             "https://llmfoundry.straivedemo.com/vertexai/google/models/gemini-2.5-pro:generateContent",
         ),
+        claude_codegen_url=os.getenv(
+            "CLAUDE_CODEGEN_URL",
+            "https://llmfoundry.straive.com/anthropic/v1/messages",
+        ),
         model_name=os.getenv("STRAIVE_MODEL", "gpt-4o-mini"),
+        claude_model=os.getenv("STRAIVE_CLAUDE_MODEL", "claude-haiku-4-5-20251001"),
+        claude_project_suffix=os.getenv("STRAIVE_CLAUDE_PROJECT_SUFFIX", ""),
         cors_origins=origins if origins else ["*"],
         db_path=os.getenv("APP_DB_PATH", "app.db"),
         assets_dir=os.getenv("ASSETS_DIR", "assets"),

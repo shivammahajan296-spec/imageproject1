@@ -230,7 +230,11 @@ def _sha256_bytes(blob: bytes) -> str:
 
 def _normalize_cad_provider(value: str | None) -> str:
     raw = (value or "").strip().lower()
-    return "gpt" if raw == "gpt" else "gemini"
+    if raw == "gpt":
+        return "gpt"
+    if raw == "claude":
+        return "claude"
+    return "gemini"
 
 
 def _cache_file(kind: str, key: str) -> Path:

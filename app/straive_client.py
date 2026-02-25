@@ -33,6 +33,15 @@ class StraiveClient:
             "Content-Type": "application/json",
         }
 
+    def _claude_headers(self, api_key_override: str | None = None) -> dict[str, str]:
+        api_key = (api_key_override or self.settings.straive_api_key or "").strip()
+        suffix = (self.settings.claude_project_suffix or "").strip()
+        token = api_key if not suffix else f"{api_key}:{suffix}"
+        return {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
     @staticmethod
     def _redact(value: Any) -> Any:
         if isinstance(value, str) and len(value) > 200:
@@ -96,6 +105,14 @@ class StraiveClient:
                 image_bytes=image_bytes,
                 image_mime_type=image_mime_type,
             )
+        if mode == "claude":
+            return await self._cad_codegen_claude(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                api_key_override=api_key_override,
+                image_bytes=image_bytes,
+                image_mime_type=image_mime_type,
+            )
         return await self._cad_codegen_gemini(
             system_prompt=system_prompt,
             user_message=user_message,
@@ -103,6 +120,55 @@ class StraiveClient:
             image_bytes=image_bytes,
             image_mime_type=image_mime_type,
         )
+
+    async def _cad_codegen_claude(
+        self,
+        system_prompt: str,
+        user_message: str,
+        api_key_override: str | None = None,
+        image_bytes: bytes | None = None,
+        image_mime_type: str | None = None,
+    ) -> str | None:
+        merged = f"{system_prompt.strip()}\n\n{user_message.strip()}".strip()
+        content_parts: list[dict[str, Any]] = []
+        if image_bytes:
+            mime = image_mime_type or "image/png"
+            content_parts.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime,
+                        "data": base64.b64encode(image_bytes).decode("utf-8"),
+                    },
+                }
+            )
+        content_parts.append({"type": "text", "text": merged})
+
+        payload = {
+            "model": self.settings.claude_model,
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": content_parts}],
+        }
+        logger.info("Straive CAD Claude request: %s", self._redact(payload))
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_MEDIUM) as client:
+            try:
+                resp = await client.post(
+                    self.settings.claude_codegen_url,
+                    headers=self._claude_headers(api_key_override=api_key_override),
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                logger.info("Straive CAD Claude response: %s", self._redact(data))
+                return self._extract_claude_text(data)
+            except httpx.HTTPStatusError as exc:
+                body = (exc.response.text or "")[:500]
+                raise RuntimeError(f"HTTP {exc.response.status_code} from Claude provider: {body}") from exc
+            except httpx.TimeoutException as exc:
+                raise RuntimeError("Claude provider timeout.") from exc
+            except httpx.HTTPError as exc:
+                raise RuntimeError(f"Claude provider network error: {exc}") from exc
 
     async def _cad_codegen_gemini(
         self,
@@ -583,6 +649,18 @@ class StraiveClient:
         except Exception:
             return None
         return None
+
+    @staticmethod
+    def _extract_claude_text(data: dict[str, Any]) -> str | None:
+        content = data.get("content")
+        if not isinstance(content, list):
+            return None
+        chunks: list[str] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
+                chunks.append(part["text"])
+        text = "\n".join(chunks).strip()
+        return text or None
 
     @staticmethod
     def _normalize_asset_metadata(data: dict[str, Any], image_path: Path) -> dict[str, Any]:

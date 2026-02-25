@@ -217,6 +217,14 @@ let cadAttemptStates = Array.from({ length: 10 }, () => ({
 }));
 let stepCadLoopStopRequested = false;
 let stepCadLoopRunning = false;
+
+function normalizeCadProvider(value) {
+  const raw = (value || "gemini").toLowerCase();
+  if (raw === "gpt") return "gpt";
+  if (raw === "claude") return "claude";
+  return "gemini";
+}
+
 const cadSpecState = {
   target_volume_ml: "",
   Soverall_height_mm: "",
@@ -1123,7 +1131,7 @@ async function generateStepCad() {
     return;
   }
   const prompt = (currentStepCadPrompt || "").trim();
-  const provider = (currentCadProvider || "gemini").toLowerCase() === "gpt" ? "gpt" : "gemini";
+  const provider = normalizeCadProvider(currentCadProvider);
   if (!prompt) {
     addMessage("system", "CAD Query prompt cannot be empty.");
     return;
@@ -1548,7 +1556,7 @@ document.querySelectorAll(".hub-module-head").forEach((btn) => {
   resetCadAttemptsUi();
   hideCadExecutionIssue();
   currentStepCadPrompt = getSavedStepCadPrompt();
-  currentCadProvider = (localStorage.getItem(CAD_PROVIDER_STORAGE_KEY) || "gemini").toLowerCase() === "gpt" ? "gpt" : "gemini";
+  currentCadProvider = normalizeCadProvider(localStorage.getItem(CAD_PROVIDER_STORAGE_KEY) || "gemini");
   if (el.cadProviderSelect) {
     el.cadProviderSelect.value = currentCadProvider;
   }
@@ -1567,7 +1575,7 @@ document.querySelectorAll(".hub-module-head").forEach((btn) => {
 })();
 
 el.cadProviderSelect.addEventListener("change", () => {
-  currentCadProvider = (el.cadProviderSelect.value || "gemini").toLowerCase() === "gpt" ? "gpt" : "gemini";
+  currentCadProvider = normalizeCadProvider(el.cadProviderSelect.value || "gemini");
   localStorage.setItem(CAD_PROVIDER_STORAGE_KEY, currentCadProvider);
   addMessage("system", `CAD provider set to ${currentCadProvider.toUpperCase()}.`);
 });
