@@ -147,7 +147,6 @@ class StraiveClient:
 
         payload = {
             "model": self.settings.claude_model,
-            "max_tokens": 4096,
             "messages": [{"role": "user", "content": content_parts}],
         }
         logger.info("Straive CAD Claude request: %s", self._redact(payload))
@@ -195,7 +194,7 @@ class StraiveClient:
 
         payload = {
             "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4096},
+            "generationConfig": {"temperature": 0.2},
         }
         logger.info("Straive CAD codegen request: %s", self._redact(payload))
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_MEDIUM) as client:
