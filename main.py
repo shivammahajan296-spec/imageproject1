@@ -10,6 +10,7 @@ import logging
 import mimetypes
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import uuid
@@ -34,6 +35,7 @@ from app.models import (
     BaselineSkipResponse,
     ChatRequest,
     ChatResponse,
+    CacheClearRequest,
     CacheClearResponse,
     EditRecommendationsResponse,
     BriefUploadResponse,
@@ -287,24 +289,52 @@ def _cache_put(kind: str, key: str, image_id: str, image_data_url: str) -> None:
     _cache_json_put(kind, key, payload)
 
 
-def _cache_clear_all() -> int:
+def _remove_all_files_under(root: Path) -> int:
     removed = 0
-    for p in CACHE_DIR.rglob("*"):
+    if not root.exists() or not root.is_dir():
+        return 0
+    for p in root.rglob("*"):
         if p.is_file():
             p.unlink(missing_ok=True)
             removed += 1
-    for p in CAD_RUN_DIR.rglob("*"):
-        if p.is_file():
-            p.unlink(missing_ok=True)
-            removed += 1
-    # Cleanup empty run folders after file removal.
-    for d in sorted(CAD_RUN_DIR.rglob("*"), reverse=True):
+    for d in sorted(root.rglob("*"), reverse=True):
         if d.is_dir():
             try:
                 d.rmdir()
             except OSError:
                 pass
     return removed
+
+
+def _vacuum_db() -> bool:
+    db_path = Path(settings.db_path)
+    if not db_path.exists() or not db_path.is_file():
+        return False
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute("VACUUM")
+            conn.commit()
+        finally:
+            conn.close()
+        return True
+    except Exception as exc:
+        logger.warning("DB vacuum failed: %s", exc)
+        return False
+
+
+def _cache_clear_all(deep_cleanup: bool = False, vacuum_db: bool = False) -> dict[str, Any]:
+    removed_cache_files = _remove_all_files_under(CACHE_DIR)
+    removed_session_files = _remove_all_files_under(SESSION_IMAGE_DIR)
+    removed_step_files = _remove_all_files_under(CAD_RUN_DIR) if deep_cleanup else 0
+    db_vacuumed = _vacuum_db() if vacuum_db else False
+    return {
+        "removed_files": removed_cache_files + removed_session_files + removed_step_files,
+        "removed_cache_files": removed_cache_files,
+        "removed_session_files": removed_session_files,
+        "removed_step_files": removed_step_files,
+        "db_vacuumed": db_vacuumed,
+    }
 
 
 async def _resolve_image_bytes(value: str, req_api_key: str | None = None) -> tuple[bytes, str]:
@@ -1379,10 +1409,27 @@ async def fix_cad_model_code_start(payload: CadModelFixRequest, request: Request
 
 
 @app.post("/api/cache/clear", response_model=CacheClearResponse)
-async def clear_cache(request: Request) -> CacheClearResponse:
+async def clear_cache(
+    request: Request,
+    payload: CacheClearRequest | None = None,
+    deep_cleanup: bool = False,
+    vacuum_db: bool = False,
+) -> CacheClearResponse:
     limiter.check(request, "cache-clear")
-    removed = _cache_clear_all()
-    return CacheClearResponse(message="Cache cleared.", removed_files=removed)
+    req = payload or CacheClearRequest()
+    deep = bool(deep_cleanup or req.deep_cleanup)
+    do_vacuum = bool(vacuum_db or req.vacuum_db)
+    stats = _cache_clear_all(deep_cleanup=deep, vacuum_db=do_vacuum)
+    return CacheClearResponse(
+        message="Cache cleanup completed.",
+        removed_files=int(stats["removed_files"]),
+        deep_cleanup=deep,
+        vacuum_db=do_vacuum,
+        removed_cache_files=int(stats["removed_cache_files"]),
+        removed_session_files=int(stats["removed_session_files"]),
+        removed_step_files=int(stats["removed_step_files"]),
+        db_vacuumed=bool(stats["db_vacuumed"]),
+    )
 
 
 @app.post("/api/baseline/skip", response_model=BaselineSkipResponse)

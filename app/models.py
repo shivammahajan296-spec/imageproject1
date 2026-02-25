@@ -147,6 +147,17 @@ class SessionClearResponse(BaseModel):
 class CacheClearResponse(BaseModel):
     message: str
     removed_files: int
+    deep_cleanup: bool = False
+    vacuum_db: bool = False
+    removed_cache_files: int = 0
+    removed_session_files: int = 0
+    removed_step_files: int = 0
+    db_vacuumed: bool = False
+
+
+class CacheClearRequest(BaseModel):
+    deep_cleanup: bool = False
+    vacuum_db: bool = False
 
 
 class AssetCatalogItem(BaseModel):

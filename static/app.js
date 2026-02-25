@@ -1291,7 +1291,8 @@ async function clearSessionState() {
 
 async function clearServerCache() {
   const res = await apiPost("/api/cache/clear", {});
-  addMessage("system", `${res.message} Removed entries: ${res.removed_files}.`);
+  const details = `removed=${res.removed_files}, cache=${res.removed_cache_files || 0}, sessions=${res.removed_session_files || 0}, step=${res.removed_step_files || 0}, vacuum=${res.db_vacuumed ? "yes" : "no"}`;
+  addMessage("system", `${res.message} ${details}`);
 }
 
 async function uploadMarketingBrief(file) {
