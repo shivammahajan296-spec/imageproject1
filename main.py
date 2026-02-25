@@ -308,7 +308,7 @@ async def _resolve_image_bytes(value: str, req_api_key: str | None = None) -> tu
         headers = {}
         if req_api_key:
             headers["Authorization"] = f"Bearer {req_api_key}"
-        async with httpx.AsyncClient(timeout=45) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.get(raw, headers=headers)
             resp.raise_for_status()
             blob = resp.content
@@ -395,7 +395,7 @@ def _run_generated_cad_script(script_text: str, session_id: str) -> tuple[str, s
         cwd=str(run_dir),
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=420,
         env=env,
     )
     if proc.returncode != 0:

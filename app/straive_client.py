@@ -16,6 +16,11 @@ from app.config import Settings
 
 logger = logging.getLogger(__name__)
 
+# Centralized provider timeout controls for production latency variance.
+HTTP_TIMEOUT_SHORT = 120
+HTTP_TIMEOUT_MEDIUM = 180
+HTTP_TIMEOUT_LONG = 300
+
 
 class StraiveClient:
     def __init__(self, settings: Settings) -> None:
@@ -59,7 +64,7 @@ class StraiveClient:
         ]
         payload = {"model": self.settings.model_name, "messages": messages, "temperature": 0.2}
         logger.info("Straive chat request: %s", self._redact(payload))
-        async with httpx.AsyncClient(timeout=45) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SHORT) as client:
             resp = await client.post(
                 self.settings.chat_url,
                 headers=self._headers(api_key_override=api_key_override),
@@ -127,7 +132,7 @@ class StraiveClient:
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4096},
         }
         logger.info("Straive CAD codegen request: %s", self._redact(payload))
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_MEDIUM) as client:
             try:
                 resp = await client.post(
                     self.settings.cad_codegen_url,
@@ -169,7 +174,7 @@ class StraiveClient:
             "temperature": 0.2,
         }
         logger.info("Straive CAD GPT request: %s", self._redact(payload))
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_MEDIUM) as client:
             try:
                 resp = await client.post(
                     self.settings.chat_url,
@@ -247,7 +252,7 @@ class StraiveClient:
             return blob, mime_type, f"edit_input{ext}"
 
         if raw.startswith("http://") or raw.startswith("https://"):
-            async with httpx.AsyncClient(timeout=45) as client:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SHORT) as client:
                 resp = await client.get(raw)
                 resp.raise_for_status()
                 mime_type = resp.headers.get("content-type", "image/png").split(";")[0].strip() or "image/png"
@@ -277,7 +282,7 @@ class StraiveClient:
         token = api_key_override or self.settings.straive_api_key
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        async with httpx.AsyncClient(timeout=45) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SHORT) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
             return base64.b64encode(resp.content).decode("utf-8")
@@ -304,7 +309,7 @@ class StraiveClient:
         self, payload: dict[str, Any], api_key_override: str | None = None
     ) -> dict[str, Any]:
         logger.info("Straive image generate request: %s", self._redact(payload))
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_MEDIUM) as client:
             resp = await client.post(
                 self.settings.image_generate_url,
                 headers=self._headers(api_key_override=api_key_override),
@@ -336,7 +341,7 @@ class StraiveClient:
     ) -> dict[str, Any]:
         logger.info("Straive image edit request: %s", self._redact(data))
         auth_headers = {"Authorization": f"Bearer {api_key_override or self.settings.straive_api_key}"}
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_LONG) as client:
             resp = await client.post(
                 url,
                 headers=auth_headers,
@@ -352,7 +357,7 @@ class StraiveClient:
         self, url: str, payload: dict[str, Any], api_key_override: str | None = None
     ) -> dict[str, Any]:
         logger.info("Straive image edit JSON request: %s", self._redact(payload))
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_LONG) as client:
             resp = await client.post(
                 url,
                 headers=self._headers(api_key_override=api_key_override),
@@ -449,7 +454,7 @@ class StraiveClient:
             "response_format": {"type": "json_object"},
         }
         logger.info("Straive asset metadata request: %s", self._redact(payload))
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_MEDIUM) as client:
             resp = await client.post(
                 self.settings.chat_url,
                 headers=self._headers(api_key_override=api_key_override),
@@ -485,7 +490,7 @@ class StraiveClient:
             "response_format": {"type": "json_object"},
         }
         logger.info("Straive brief extraction request: %s", self._redact(payload))
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_MEDIUM) as client:
             resp = await client.post(
                 self.settings.chat_url,
                 headers=self._headers(api_key_override=api_key_override),

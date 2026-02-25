@@ -815,7 +815,7 @@ async function apiGet(url) {
   return data;
 }
 
-async function waitForJob(jobId, progressPrefix = "Processing", timeoutMs = 8 * 60 * 1000) {
+async function waitForJob(jobId, progressPrefix = "Processing", timeoutMs = 15 * 60 * 1000) {
   const startedAt = Date.now();
   while (true) {
     if (Date.now() - startedAt > timeoutMs) {
@@ -1160,7 +1160,7 @@ async function generateStepCad() {
           prompt,
           provider,
         });
-        res = await waitForJob(started.job_id, `STEP CAD attempt ${i + 1}`, 12 * 60 * 1000);
+        res = await waitForJob(started.job_id, `STEP CAD attempt ${i + 1}`, 20 * 60 * 1000);
       } else {
         const started = await apiPost("/api/cad/model/fix-code/start", {
           session_id: state.sessionId,
@@ -1169,7 +1169,7 @@ async function generateStepCad() {
           prompt,
           provider,
         });
-        res = await waitForJob(started.job_id, `STEP CAD fix attempt ${i + 1}`, 12 * 60 * 1000);
+        res = await waitForJob(started.job_id, `STEP CAD fix attempt ${i + 1}`, 20 * 60 * 1000);
       }
 
       if (res.success && res.step_file) {
