@@ -9,6 +9,8 @@ class Settings:
     image_generate_url: str
     image_edit_url: str
     cad_codegen_url: str
+    gemini_openai_chat_url: str
+    gemini_openai_model: str
     claude_codegen_url: str
     model_name: str
     claude_model: str
@@ -35,6 +37,11 @@ def load_settings() -> Settings:
             "CAD_CODEGEN_URL",
             "https://llmfoundry.straivedemo.com/vertexai/google/models/gemini-2.5-pro:generateContent",
         ),
+        gemini_openai_chat_url=os.getenv(
+            "GEMINI_OPENAI_CHAT_URL",
+            "https://llmfoundry.straive.com/gemini/v1beta/openai/chat/completions",
+        ),
+        gemini_openai_model=os.getenv("GEMINI_OPENAI_MODEL", "gemini-3-pro-preview"),
         claude_codegen_url=os.getenv(
             "CLAUDE_CODEGEN_URL",
             "https://llmfoundry.straive.com/anthropic/v1/messages",

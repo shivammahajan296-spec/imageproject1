@@ -182,33 +182,30 @@ class StraiveClient:
             return None
 
         merged_prompt = f"{system_prompt.strip()}\n\n{user_message.strip()}".strip()
-        parts: list[dict[str, Any]] = [{"text": merged_prompt}]
+        user_content: list[dict[str, Any]] = [{"type": "text", "text": merged_prompt}]
         if image_bytes:
-            parts.append(
-                {
-                    "inline_data": {
-                        "mime_type": image_mime_type or "image/png",
-                        "data": base64.b64encode(image_bytes).decode("utf-8"),
-                    }
-                }
-            )
+            mime = image_mime_type or "image/jpeg"
+            img_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            user_content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{img_b64}"}})
 
         payload = {
-            "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {"temperature": 0.2},
+            "model": self.settings.gemini_openai_model,
+            "temperature": 0.1,
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": user_content}],
         }
-        logger.info("Straive CAD codegen request: %s", self._redact(payload))
+        logger.info("Straive CAD Gemini(OpenAI) request: %s", self._redact(payload))
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_MEDIUM) as client:
             try:
                 resp = await client.post(
-                    self.settings.cad_codegen_url,
+                    self.settings.gemini_openai_chat_url,
                     headers=self._headers(api_key_override=api_key_override),
                     json=payload,
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                logger.info("Straive CAD codegen response: %s", self._redact(data))
-                return self._extract_vertex_text(data)
+                logger.info("Straive CAD Gemini(OpenAI) response: %s", self._redact(data))
+                return self._extract_openai_text(data)
             except httpx.HTTPStatusError as exc:
                 body = (exc.response.text or "")[:500]
                 raise RuntimeError(f"HTTP {exc.response.status_code} from Gemini provider: {body}") from exc
