@@ -191,7 +191,6 @@ class StraiveClient:
         payload = {
             "model": self.settings.gemini_openai_model,
             "temperature": 0.1,
-            "max_tokens": 4096,
             "messages": [{"role": "user", "content": user_content}],
         }
         logger.info("Straive CAD Gemini(OpenAI) request: %s", self._redact(payload))
